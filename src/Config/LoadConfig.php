@@ -8,7 +8,7 @@ use Symfony\Component\Yaml\Yaml;
 
 class LoadConfig
 {
-    private const CONFIG_FILE = 'gbc.yml';
+    private const CONFIG_FILE = '.gbc.yml';
 
     public function load(): array
     {
