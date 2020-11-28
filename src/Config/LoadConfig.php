@@ -12,7 +12,7 @@ class LoadConfig
 
     public function load(): array
     {
-        $config = Yaml::parseFile(__DIR__ . '/../config.yml');
+        $config = Yaml::parseFile(__DIR__ . '/../../config.yml');
 
         if ($this->hasPerRepositoryConfigFile()) {
             $config = array_merge($config, $this->loadRepositoryConfig());
