@@ -6,6 +6,7 @@ namespace Cromwell\GitSpruce\Command;
 
 use Cromwell\GitSpruce\GitSpruce;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Command\SignalableCommandInterface;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
@@ -13,11 +14,16 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 
-class CleanBranchesCommand extends Command
+class CleanBranchesCommand extends Command implements SignalableCommandInterface
 {
     protected static $defaultName = 'gbc:clean';
 
     protected GitSpruce $cleanBranches;
+
+    protected int $totalMerged = 0;
+    protected int $totalNotMerged = 0;
+    protected int $totalRemoved = 0;
+    protected OutputInterface $output;
 
     public function __construct(GitSpruce $cleanBranches)
     {
@@ -25,6 +31,26 @@ class CleanBranchesCommand extends Command
 
         $this->cleanBranches = $cleanBranches;
     }
+
+    public function getSubscribedSignals(): array
+    {
+        return [
+            SIGINT,
+            SIGTERM,
+        ];
+    }
+
+    public function handleSignal(int $signal): void
+    {
+        switch ($signal) {
+            case SIGINT:
+            case SIGTERM:
+                $this->printSummaryTable();
+                exit();
+                break;
+        }
+    }
+
 
     protected function configure()
     {
@@ -43,7 +69,7 @@ class CleanBranchesCommand extends Command
 
         $branches = $this->cleanBranches->loadBranches();
 
-        $totalMerged = $totalNotMerged = $totalRemoved = 0;
+        $this->output = $output;
 
         /** @var QuestionHelper $helper */
         $helper = $this->getHelper('question');
@@ -52,29 +78,34 @@ class CleanBranchesCommand extends Command
             $merged = $this->cleanBranches->branchIsMerged($branch->getName());
 
             if ($merged) {
-                $totalMerged++;
+                $this->totalMerged++;
                 $question = new ConfirmationQuestion(sprintf('Branch <info>%s</info> is merged. Remove? ', $branch->getName()), false);
 
                 if ($helper->ask($input, $output, $question)) {
-                    $totalRemoved++;
+                    $this->totalRemoved++;
                     $response = $this->cleanBranches->removeBranch($branch->getName(), $input->getOption('force'));
                     foreach ($response as $line) {
                         $output->writeln(sprintf('<error>%s</error>', $line));
                     }
                 }
             } else {
-                $totalNotMerged++;
+                $this->totalNotMerged++;
                 $output->writeln(sprintf('Branch <comment>%s</comment> is not merged', $branch->getName()));
             }
         }
 
-        $output->writeln('');
-
-        $table = new Table($output);
-        $table->setHeaders(['Merged', 'Not Merged', 'Removed']);
-        $table->addRow([$totalMerged, $totalNotMerged, $totalRemoved]);
-        $table->render();
+        $this->printSummaryTable();
 
         return Command::SUCCESS;
+    }
+
+    protected function printSummaryTable(): void
+    {
+        $this->output->writeln('');
+
+        $table = new Table($this->output);
+        $table->setHeaders(['Merged', 'Not Merged', 'Removed']);
+        $table->addRow([$this->totalMerged, $this->totalNotMerged, $this->totalRemoved]);
+        $table->render();
     }
 }
