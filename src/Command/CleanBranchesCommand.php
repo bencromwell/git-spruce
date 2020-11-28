@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Cromwell\GitBranchClean;
+namespace Cromwell\GitBranchClean\Command;
 
+use Cromwell\GitBranchClean\CleanBranches;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
@@ -28,7 +29,7 @@ class CleanBranchesCommand extends Command
     {
         $this
             ->setDescription('Removes branches that have been merged to the configured merge base branch')
-            ->addOption('prune', 'p', InputOption::VALUE_NONE, 'Run a git fetch -p?')
+            ->addOption('prune', 'p', InputOption::VALUE_NONE, 'Run a git fetch -p')
             ->addOption('force', 'f', InputOption::VALUE_NONE, 'Runs git branch -D on detected branches.')
         ;
     }
