@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Cromwell\GitSpruce\Command;
 
-use Cromwell\GitSpruce\CleanBranches;
+use Cromwell\GitSpruce\GitSpruce;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\Table;
@@ -17,9 +17,9 @@ class CleanBranchesCommand extends Command
 {
     protected static $defaultName = 'gbc:clean';
 
-    protected CleanBranches $cleanBranches;
+    protected GitSpruce $cleanBranches;
 
-    public function __construct(CleanBranches $cleanBranches)
+    public function __construct(GitSpruce $cleanBranches)
     {
         parent::__construct();
 

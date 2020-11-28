@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Cromwell\GitSpruce;
 
-class CleanBranches
+class GitSpruce
 {
     protected string $mergeBase;
 
