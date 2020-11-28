@@ -43,7 +43,7 @@ class CleanBranches
             $branch = trim($branch, '*');
             $branch = trim($branch);
 
-            if (empty($branch)) {
+            if (empty($branch) || strpos($branch, 'detached') !== false) {
                 continue;
             }
 
