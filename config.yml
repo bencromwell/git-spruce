@@ -1,0 +1,6 @@
+---
+ignore_branches:
+  - develop
+  - master
+  - main
+merge_base: origin/develop
