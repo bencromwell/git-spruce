@@ -62,6 +62,10 @@ The deletion action is destructive, so it's interactive, prompting for confirmat
 
 If you mess up you can probably recover a deleted branch from `git reflog`.
 
+### skip
+
+At any time you can Ctrl+C/Ctrl+D to exit.
+
 ## recovery
 
 ```shell script

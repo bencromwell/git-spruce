@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c0c637049e4a24ee789fafff2cbb05ff",
+    "content-hash": "c4cd6b3a0cb7fba39ac9438cedf7f4cd",
     "packages": [
         {
             "name": "psr/container",
@@ -57,16 +57,16 @@
         },
         {
             "name": "symfony/console",
-            "version": "v5.1.8",
+            "version": "5.x-dev",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/console.git",
-                "reference": "e0b2c29c0fa6a69089209bbe8fcff4df2a313d0e"
+                "reference": "3f7fc42584a9a02153076677962acf13ae22bb08"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/console/zipball/e0b2c29c0fa6a69089209bbe8fcff4df2a313d0e",
-                "reference": "e0b2c29c0fa6a69089209bbe8fcff4df2a313d0e",
+                "url": "https://api.github.com/repos/symfony/console/zipball/3f7fc42584a9a02153076677962acf13ae22bb08",
+                "reference": "3f7fc42584a9a02153076677962acf13ae22bb08",
                 "shasum": ""
             },
             "require": {
@@ -127,6 +127,12 @@
             ],
             "description": "Symfony Console Component",
             "homepage": "https://symfony.com",
+            "keywords": [
+                "cli",
+                "command line",
+                "console",
+                "terminal"
+            ],
             "funding": [
                 {
                     "url": "https://symfony.com/sponsor",
@@ -141,7 +147,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2020-10-24T12:01:57+00:00"
+            "time": "2020-11-27T06:12:26+00:00"
         },
         {
             "name": "symfony/deprecation-contracts",
@@ -1390,16 +1396,16 @@
         },
         {
             "name": "phpunit/php-code-coverage",
-            "version": "9.2.4",
+            "version": "9.2.5",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sebastianbergmann/php-code-coverage.git",
-                "reference": "0a7f0acf9269c190fd982b5c04423feae986b6e0"
+                "reference": "f3e026641cc91909d421802dd3ac7827ebfd97e1"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sebastianbergmann/php-code-coverage/zipball/0a7f0acf9269c190fd982b5c04423feae986b6e0",
-                "reference": "0a7f0acf9269c190fd982b5c04423feae986b6e0",
+                "url": "https://api.github.com/repos/sebastianbergmann/php-code-coverage/zipball/f3e026641cc91909d421802dd3ac7827ebfd97e1",
+                "reference": "f3e026641cc91909d421802dd3ac7827ebfd97e1",
                 "shasum": ""
             },
             "require": {
@@ -1413,7 +1419,7 @@
                 "sebastian/code-unit-reverse-lookup": "^2.0.2",
                 "sebastian/complexity": "^2.0",
                 "sebastian/environment": "^5.1.2",
-                "sebastian/lines-of-code": "^1.0",
+                "sebastian/lines-of-code": "^1.0.3",
                 "sebastian/version": "^3.0.1",
                 "theseer/tokenizer": "^1.2.0"
             },
@@ -1459,7 +1465,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2020-11-27T06:15:15+00:00"
+            "time": "2020-11-28T06:44:49+00:00"
         },
         {
             "name": "phpunit/php-file-iterator",
@@ -2319,16 +2325,16 @@
         },
         {
             "name": "sebastian/lines-of-code",
-            "version": "1.0.2",
+            "version": "1.0.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sebastianbergmann/lines-of-code.git",
-                "reference": "acf76492a65401babcf5283296fa510782783a7a"
+                "reference": "c1c2e997aa3146983ed888ad08b15470a2e22ecc"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sebastianbergmann/lines-of-code/zipball/acf76492a65401babcf5283296fa510782783a7a",
-                "reference": "acf76492a65401babcf5283296fa510782783a7a",
+                "url": "https://api.github.com/repos/sebastianbergmann/lines-of-code/zipball/c1c2e997aa3146983ed888ad08b15470a2e22ecc",
+                "reference": "c1c2e997aa3146983ed888ad08b15470a2e22ecc",
                 "shasum": ""
             },
             "require": {
@@ -2368,7 +2374,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2020-10-26T17:03:56+00:00"
+            "time": "2020-11-28T06:42:11+00:00"
         },
         {
             "name": "sebastian/object-enumerator",
@@ -2783,10 +2789,14 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {
+        "symfony/console": 20
+    },
     "prefer-stable": false,
     "prefer-lowest": false,
-    "platform": [],
+    "platform": {
+        "ext-pcntl": "*"
+    },
     "platform-dev": [],
     "plugin-api-version": "1.1.0"
 }
