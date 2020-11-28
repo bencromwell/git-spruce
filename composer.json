@@ -1,9 +1,9 @@
 {
-    "name": "cromwell/gitbranchclean",
+    "name": "cromwell/git-spruce",
     "type": "project",
     "autoload": {
         "psr-4": {
-            "Cromwell\\GitBranchClean\\": "src/"
+            "Cromwell\\GitSpruce\\": "src/"
         }
     },
     "require": {

@@ -3,9 +3,9 @@
 
 require __DIR__ . '/vendor/autoload.php';
 
-use Cromwell\GitBranchClean\CleanBranches;
-use Cromwell\GitBranchClean\Command\CleanBranchesCommand;
-use Cromwell\GitBranchClean\Config\LoadConfig;
+use Cromwell\GitSpruce\CleanBranches;
+use Cromwell\GitSpruce\Command\CleanBranchesCommand;
+use Cromwell\GitSpruce\Config\LoadConfig;
 use Symfony\Component\Console\Application;
 
 $application = new Application();

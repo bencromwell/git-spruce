@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Cromwell\GitBranchClean\Command;
+namespace Cromwell\GitSpruce\Command;
 
-use Cromwell\GitBranchClean\CleanBranches;
+use Cromwell\GitSpruce\CleanBranches;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -44,6 +45,7 @@ class CleanBranchesCommand extends Command
 
         $totalMerged = $totalNotMerged = $totalRemoved = 0;
 
+        /** @var QuestionHelper $helper */
         $helper = $this->getHelper('question');
 
         foreach ($branches as $branch) {

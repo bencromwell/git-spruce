@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Cromwell\GitBranchClean\Config;
+namespace Cromwell\GitSpruce\Config;
 
 use Symfony\Component\Yaml\Yaml;
 
