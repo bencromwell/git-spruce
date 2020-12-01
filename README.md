@@ -50,7 +50,7 @@ This contains the following keys:
 
 - `merge_base`: the merge base we're checking again to check what's merged. In a usual git flow workflow this will be develop.
 
-You can override the config on a per repository basis by adding a `.gbc.yml` configuration file to each repo.
+You can override the config on a per repository basis by adding a `.git-spruce.yml` configuration file to each repo.
 
 Perhaps you only merge to main on a particular repo, or some other branch. This is for that use case.
 

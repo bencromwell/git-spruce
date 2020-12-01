@@ -8,7 +8,7 @@ use Symfony\Component\Yaml\Yaml;
 
 class LoadConfig
 {
-    private const CONFIG_FILE = '.gbc.yml';
+    private const CONFIG_FILE = '.git-spruce.yml';
 
     public function load(): array
     {
@@ -28,6 +28,6 @@ class LoadConfig
 
     private function loadRepositoryConfig(): array
     {
-        return Yaml::parseFile('gbc.yml');
+        return Yaml::parseFile(self::CONFIG_FILE);
     }
 }
