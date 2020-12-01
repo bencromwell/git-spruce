@@ -15,7 +15,7 @@ use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 class CleanBranchesCommand extends Command
 {
-    protected static $defaultName = 'gbc:clean';
+    protected static $defaultName = 'clean';
 
     protected GitSpruce $cleanBranches;
 

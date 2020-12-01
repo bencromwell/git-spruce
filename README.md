@@ -9,19 +9,17 @@ Description:
   Removes branches that have been merged to the configured merge base branch
 
 Usage:
-  gbc:clean [options]
+  [options]
 
 Options:
   -p, --prune           Run a git fetch -p
   -f, --force           Runs git branch -D on detected branches.
 ```
 
-It's setup using Symfony's default command so you can run it directly without `gbc:clean`.
-
 Clone the repo to wherever you want, and add an alias:
 
 ```shell script
-$ alias 'git-spruce'='php /path/to/git-spruce/gbc.php'
+$ alias 'git-spruce'='php /path/to/git-spruce/git-spruce.php'
 ```
 
 It runs contextual to the current working directory and prompts for each branch to potentially remove.
