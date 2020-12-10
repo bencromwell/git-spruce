@@ -32,6 +32,7 @@ class CleanBranchesCommand extends Command
             ->setDescription('Removes branches that have been merged to the configured merge base branch')
             ->addOption('prune', 'p', InputOption::VALUE_NONE, 'Run a git fetch -p')
             ->addOption('force', 'f', InputOption::VALUE_NONE, 'Runs git branch -D on detected branches.')
+            ->addOption('yes-all', 'y', InputOption::VALUE_NONE, 'No confirmation, removes all detected branches.')
         ;
     }
 
@@ -40,6 +41,8 @@ class CleanBranchesCommand extends Command
         if ($input->getOption('prune')) {
             $this->cleanBranches->fetchPrune();
         }
+
+        $noConfirmation = $input->getOption('yes-all');
 
         $branches = $this->cleanBranches->loadBranches();
 
@@ -55,7 +58,7 @@ class CleanBranchesCommand extends Command
                 $totalMerged++;
                 $question = new ConfirmationQuestion(sprintf('Branch <info>%s</info> is merged. Remove? ', $branch->getName()), false);
 
-                if ($helper->ask($input, $output, $question)) {
+                if ($noConfirmation || $helper->ask($input, $output, $question)) {
                     $totalRemoved++;
                     $response = $this->cleanBranches->removeBranch($branch->getName(), $input->getOption('force'));
                     foreach ($response as $line) {
