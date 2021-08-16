@@ -1,6 +1,7 @@
 {
     "name": "cromwell/git-spruce",
     "description": "CLI for sprucing up your local git, cleans out branches that have been merged upstream.",
+    "metadata-url": "/p2/%package%.json",
     "autoload": {
         "psr-4": {
             "Cromwell\\GitSpruce\\": "src/"
