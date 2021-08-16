@@ -1,0 +1,6 @@
+#!/usr/bin/env php
+<?php
+
+# shell wrapper
+
+require_once __DIR__ . '/git-spruce.php';

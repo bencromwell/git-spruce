@@ -13,5 +13,11 @@
     "require-dev": {
         "phpunit/phpunit": "^9.4"
     },
+    "bin": [
+        "bin/git-spruce"
+    ],
+    "config": {
+        "sort-packages": true
+    },
     "license": "MIT"
 }
