@@ -3,4 +3,4 @@ ignore_branches:
   - develop
   - master
   - main
-merge_base: origin/develop
+merge_base: origin/main

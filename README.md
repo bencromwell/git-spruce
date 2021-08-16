@@ -19,7 +19,7 @@ Options:
 Clone the repo to wherever you want, and add an alias:
 
 ```shell script
-$ alias 'git-spruce'='php /path/to/git-spruce/git-spruce.php'
+$ alias 'git-spruce'='php /path/to/git-spruce/bin/git-spruce.php'
 ```
 
 It runs contextual to the current working directory and prompts for each branch to potentially remove.
@@ -48,7 +48,9 @@ This contains the following keys:
 
 - `ignore_branches`: an array of branches to never remove. Defaults to develop, main and master.
 
-- `merge_base`: the merge base we're checking again to check what's merged. In a usual git flow workflow this will be develop.
+- `merge_base`: the merge base we're checking again to check what's merged. In a usual git flow workflow this will be develop. The default here is 'main'.
+
+For the merge_base, 'main' and 'master' branches are treated as synonyms to handle the scenario where both conventions are in use.
 
 You can override the config on a per repository basis by adding a `.git-spruce.yml` configuration file to each repo.
 
