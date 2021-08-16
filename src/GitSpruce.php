@@ -62,7 +62,26 @@ class GitSpruce
 
     public function branchIsMerged(string $branchName): bool
     {
-        exec(sprintf('git merge-base --is-ancestor %s %s', $branchName, $this->mergeBase), $output, $returnStatus);
+        // handle master and main synonymously
+        $rootBranchNames = [
+            'main',
+            'master',
+        ];
+
+        if (in_array($this->mergeBase, $rootBranchNames)) {
+            foreach ($rootBranchNames as $mergeBase) {
+                if ($this->isMergedCommand($branchName, $mergeBase)) {
+                    return true;
+                }
+            }
+        }
+
+        return $this->isMergedCommand($branchName, $this->mergeBase);
+    }
+
+    private function isMergedCommand(string $branchName, string $mergeBase): bool
+    {
+        exec(sprintf('git merge-base --is-ancestor %s %s', $branchName, $mergeBase), $output, $returnStatus);
 
         return $returnStatus === 0;
     }
