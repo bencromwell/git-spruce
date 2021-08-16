@@ -1,5 +1,6 @@
 {
     "name": "cromwell/git-spruce",
+    "description": "CLI for sprucing up your local git, cleans out branches that have been merged upstream.",
     "type": "project",
     "autoload": {
         "psr-4": {
