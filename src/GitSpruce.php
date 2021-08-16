@@ -70,13 +70,20 @@ class GitSpruce
 
         if (in_array($this->mergeBase, $rootBranchNames)) {
             foreach ($rootBranchNames as $mergeBase) {
-                if ($this->isMergedCommand($branchName, $mergeBase)) {
+                if ($this->isValidReference($mergeBase) && $this->isMergedCommand($branchName, $mergeBase)) {
                     return true;
                 }
             }
         }
 
         return $this->isMergedCommand($branchName, $this->mergeBase);
+    }
+
+    private function isValidReference(string $reference): bool
+    {
+        exec(sprintf('git rev-parse --quiet --verify %s', $reference), $output, $returnStatus);
+
+        return $returnStatus === 0;
     }
 
     private function isMergedCommand(string $branchName, string $mergeBase): bool
