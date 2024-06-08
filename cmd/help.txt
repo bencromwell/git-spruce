@@ -1,0 +1,17 @@
+Removes branches that have been merged to the configured merge base branch.
+
+By default the merge base branch is 'main' or 'master' (both are supported).
+
+In global '$HOME/.git-spruce.yaml' or local to your project '.git-spruce.yaml' you can configure the following:
+
+ignore_branches: An array of branches to never remove. Defaults to develop, main and master.
+merge_base: The merge base we're checking again to check what's merged. In a usual git-flow workflow this will be develop. The default here is 'main'.
+origin: The remote to check against. Defaults to 'origin'.
+
+For the merge_base, 'main' and 'master' branches are treated as synonyms to handle the scenario where both conventions are in use.
+
+You can override the global config on a per repository basis by adding a .git-spruce.yaml configuration file to each repo.
+
+The deletion action is destructive, so it's interactive, prompting for confirmation for every deletion.
+
+If you mess up you can probably recover a deleted branch from git reflog.
