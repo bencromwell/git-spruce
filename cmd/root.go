@@ -95,11 +95,13 @@ func execute(cmd *cobra.Command, _ []string) {
 	repo, err := git.PlainOpen(repoPath)
 	Must(err)
 
+	forceFlag, _ := cmd.Flags().GetBool("force")
+
 	gitSpruce := &spruce.GitSpruce{
 		MergeBase:        config.GetString("merge_base"),
 		BranchesToIgnore: config.GetStringSlice("ignore_branches"),
 		Origin:           config.GetString("origin"),
-		Force:            cmd.Flags().Changed("force"),
+		Force:            forceFlag,
 		Repo:             repo,
 		RepoPath:         repoPath,
 	}
@@ -108,7 +110,8 @@ func execute(cmd *cobra.Command, _ []string) {
 	gitSpruce.DetectSquash = squashFlag || config.GetBool("squash_merged")
 
 	// if the user flagged yes to all, we don't need to confirm each branch's deletion
-	requireConfirmation := !cmd.Flags().Changed("yes-all")
+	yesAllFlag, _ := cmd.Flags().GetBool("yes-all")
+	requireConfirmation := !yesAllFlag
 
 	detectSquash := gitSpruce.DetectSquash
 
