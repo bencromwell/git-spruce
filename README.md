@@ -1,8 +1,10 @@
 # git-spruce
 
+[![CI](https://github.com/bencromwell/git-spruce/actions/workflows/ci.yml/badge.svg)](https://github.com/bencromwell/git-spruce/actions/workflows/ci.yml)
+
 Removes local git branches that have been merged into a configured merge base branch. A Go port of [git-spruce-php](https://github.com/bencromwell/git-spruce-php).
 
-Deletion is destructive, so git-spruce asks for confirmation before removing each branch. If you delete a branch by mistake, you can usually recover it from the git reflog.
+Deletion is destructive, so git-spruce asks for confirmation before removing each branch. If you delete a branch by mistake, you can usually recover it from the git `reflog`.
 
 ## Usage
 
@@ -13,11 +15,11 @@ git-spruce [flags]
 | Flag | Short | Effect |
 | --- | --- | --- |
 | `--repo` | | Path of the git repository to spruce. Defaults to the working directory. |
-| `--prune` | `-p` | Prune stale remote refs while fetching. |
+| `--prune` | `-p` | Prune stale remote `refs` while fetching. |
 | `--squash` | `-s` | Also remove branches whose changes were squash-merged into the merge base. |
 | `--yes-all` | `-y` | Skip the per-branch confirmation prompt. |
 | `--force` | `-f` | Delete branches even when they are not merged, like `git branch -D`. |
-| `--config` | | Path to a config file. Defaults to `$HOME/.git-spruce.yaml`. |
+| `--config` | | Path to a `config` file. Defaults to `$HOME/.git-spruce.yaml`. |
 | `--version` | | Print the version and exit. |
 
 git-spruce fetches the configured remote before checking branches. Branches with no remote ref, and branches whose remote ref has disappeared, are still checked against the merge base.
