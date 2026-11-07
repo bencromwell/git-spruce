@@ -1,9 +1,7 @@
 package spruce
 
 import (
-	"errors"
 	"fmt"
-	"os/exec"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -38,6 +36,11 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 		return nil, err
 	}
 
+	remoteRefs, err := gs.remoteRefNames()
+	if err != nil {
+		return nil, err
+	}
+
 	branchList := []GitBranch{}
 
 	err = branches.ForEach(func(ref *plumbing.Reference) error {
@@ -47,9 +50,12 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 			return nil
 		}
 
+		refName := plumbing.NewRemoteReferenceName(gs.Origin, branchName)
+		_, refExists := remoteRefs[refName.String()]
+
 		branch := GitBranch{
 			Name:   branchName,
-			IsGone: gs.isBranchGone(branchName),
+			IsGone: !refExists,
 		}
 
 		branchList = append(branchList, branch)
@@ -74,20 +80,28 @@ func (gs *GitSpruce) isBranchIgnored(branchName string) bool {
 	return false
 }
 
-func (gs *GitSpruce) isBranchGone(branchName string) bool {
-	isGone := true
+// One pass over all refs, so checking N branches costs one ref walk, not N.
+func (gs *GitSpruce) remoteRefNames() (map[string]struct{}, error) {
+	remoteRefs := map[string]struct{}{}
 
-	refName := plumbing.ReferenceName(
-		fmt.Sprintf("refs/remotes/%s/%s", gs.Origin, branchName),
-	)
-
-	_, err := gs.Repo.Reference(refName, true)
-
-	if err == nil {
-		isGone = false
+	refs, err := gs.Repo.References()
+	if err != nil {
+		return nil, err
 	}
 
-	return isGone
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsRemote() {
+			remoteRefs[ref.Name().String()] = struct{}{}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return remoteRefs, nil
 }
 
 func (gs *GitSpruce) BranchIsMerged(branchName string) bool {
@@ -111,75 +125,62 @@ func (gs *GitSpruce) BranchIsMerged(branchName string) bool {
 
 func (gs *GitSpruce) isValidReference(refName string) bool {
 	// equivalent to git rev-parse --quiet --verify %s
-	_, err := gs.Repo.Reference(plumbing.ReferenceName(refName), true)
+	// ResolveRevision, not Reference, because it accepts shorthand names
+	// like "main" alongside full ref names.
+	_, err := gs.Repo.ResolveRevision(plumbing.Revision(refName))
 
-	return err != nil
+	return err == nil
 }
 
 func (gs *GitSpruce) isMerged(branchName string, base string) bool {
 	// equivalent to git merge-base --is-ancestor %s %s
 	// https://github.com/go-git/go-git/blob/master/_examples/merge_base/main.go
 
-	cmd := exec.Command("git", "merge-base", "--is-ancestor", branchName, base)
-	cmd.Dir = gs.RepoPath
-	// run the command and get the exit code
-	err := cmd.Run()
-	if err == nil {
-		return true
-	}
-	// if the exit code is 1, the branch is not an ancestor
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		if exitErr.ExitCode() == 1 {
-			return false
-		}
+	branchHash, err := gs.Repo.ResolveRevision(plumbing.Revision(branchName))
+	if err != nil {
+		return false
 	}
 
-	return false
+	baseHash, err := gs.Repo.ResolveRevision(plumbing.Revision(base))
+	if err != nil {
+		return false
+	}
 
-	// branchHash, _ := gs.repo.ResolveRevision(plumbing.Revision(branchName))
-	// baseHash, _ := gs.repo.ResolveRevision(plumbing.Revision(base))
+	branchCommit, err := gs.Repo.CommitObject(*branchHash)
+	if err != nil {
+		return false
+	}
 
-	// commit, _ := gs.repo.CommitObject(*branchHash)
-	// baseCommit, _ := gs.repo.CommitObject(*baseHash)
+	baseCommit, err := gs.Repo.CommitObject(*baseHash)
+	if err != nil {
+		return false
+	}
 
-	// isAncestor, err := commit.IsAncestor(baseCommit)
+	isAncestor, err := branchCommit.IsAncestor(baseCommit)
+	if err != nil {
+		return false
+	}
 
-	// if err != nil {
-	// 	return false, err
-	// }
-
-	// return isAncestor, nil
+	return isAncestor
 }
 
 func (gs *GitSpruce) DeleteBranch(branchName string) (bool, error) {
-	var err error
-	// equivalent to git branch -d %s
-	// ref := plumbing.NewBranchReferenceName(branchName)
-	// err := gs.repo.Storer.RemoveReference(ref)
-	// if err != nil {
-	// 	return false, err
-	// }
-	// return true, nil
+	ref := plumbing.NewBranchReferenceName(branchName)
 
-	cmd := exec.Command("git", "branch", "-d", branchName)
-	cmd.Dir = gs.RepoPath
-
-	_, err = cmd.CombinedOutput()
-	if err == nil {
-		return true, nil
+	head, err := gs.Repo.Head()
+	if err != nil {
+		return false, err
 	}
 
-	// if it didn't work and the user allowed the use of Force, try again with -D
-	if gs.Force {
-		cmdForce := exec.Command("git", "branch", "-D", branchName)
-		cmdForce.Dir = gs.RepoPath
-
-		_, err = cmdForce.CombinedOutput()
-		if err != nil {
-			return false, err
-		}
+	// as with git branch -d, refuse to delete the checked-out branch
+	if head.Name() == ref {
+		return false, fmt.Errorf("cannot delete branch %s: it is the current branch", branchName)
 	}
 
-	return true, nil
+	// without Force, behave like git branch -d and refuse unmerged branches
+	if !gs.Force && !gs.isMerged(branchName, gs.MergeBase) {
+		return false, fmt.Errorf("branch %s is not merged; use Force to delete anyway", branchName)
+	}
+
+	return true, gs.Repo.Storer.RemoveReference(ref)
 }
