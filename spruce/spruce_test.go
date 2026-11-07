@@ -2,6 +2,7 @@ package spruce_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,9 +16,8 @@ import (
 )
 
 func initRepository(tempDir string, isBare bool) (*git.Repository, error) {
-	err := os.Mkdir(tempDir, 0755)
-	if err != nil {
-		return nil, errors.New("Failed to create temp dir")
+	if err := os.Mkdir(tempDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
 	return git.PlainInit(tempDir, isBare)
@@ -38,9 +38,6 @@ func createTestRepos(t *testing.T) TestRepos {
 	require.NoError(t, err)
 	origin, err := initRepository(originDir, true)
 	require.NoError(t, err)
-
-	assert.IsType(t, &git.Repository{}, clone)
-	assert.IsType(t, &git.Repository{}, origin)
 
 	// set the clone's remote origin to the origin repo
 	_, err = clone.CreateRemote(&config.RemoteConfig{
@@ -88,24 +85,6 @@ func createTestRepos(t *testing.T) TestRepos {
 
 	err = clone.Push(&git.PushOptions{})
 	require.NoError(t, err)
-
-	// originBranches, _ := origin.Branches()
-	// err = originBranches.ForEach(func(ref *plumbing.Reference) error {
-	// 	t.Logf("Branch: %s", ref.Name().Short())
-	// 	return nil
-	// })
-	// require.NoError(t, err)
-
-	// // Add and commit the test file
-	// cmd = exec.Command("git", "add", "test.txt")
-	// cmd.Dir = tempDir
-	// err = cmd.Run()
-	// require.NoError(t, err)
-
-	// cmd = exec.Command("git", "commit", "-m", "Initial commit")
-	// cmd.Dir = tempDir
-	// err = cmd.Run()
-	// require.NoError(t, err)
 
 	return TestRepos{clone, origin, cloneDir, originDir}
 }
