@@ -1,7 +1,7 @@
 package spruce
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // patch-id matching mirrors git patch-id; not a security hash
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -69,7 +69,6 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -216,9 +215,9 @@ func (gs *GitSpruce) isMerged(branchCommit, baseCommit *object.Commit) bool {
 }
 
 var (
-	// hunk headers carry line numbers that shift when the same change lands
-	// on a different base, so they are stripped before hashing, as git
-	// patch-id does
+	// hunk headers carry line numbers that shift when the same change
+	// lands on a different base, so they are stripped before hashing, as
+	// git patch-id does.
 	hunkHeaderRe = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
 	indexLineRe  = regexp.MustCompile(`(?m)^index [0-9a-f]+\.\.[0-9a-f]+.*$`)
 )
@@ -276,9 +275,9 @@ func (gs *GitSpruce) basePatchSet() map[string]struct{} {
 	}
 	defer iter.Close()
 
-	for i := 0; i < maxSquashScanCommits; i++ {
-		commit, err := iter.Next()
-		if err != nil {
+	for range maxSquashScanCommits {
+		commit, nextErr := iter.Next()
+		if nextErr != nil {
 			return set
 		}
 
@@ -288,8 +287,8 @@ func (gs *GitSpruce) basePatchSet() map[string]struct{} {
 			continue
 		}
 
-		parent, err := gs.commitObject(commit.ParentHashes[0])
-		if err != nil {
+		parent, parentErr := gs.commitObject(commit.ParentHashes[0])
+		if parentErr != nil {
 			continue
 		}
 
@@ -301,9 +300,10 @@ func (gs *GitSpruce) basePatchSet() map[string]struct{} {
 	return set
 }
 
-// commitRangePatchHash hashes the normalised diff a commit range introduces,
-// comparable across branches. ok is false when the range changes nothing.
-func commitRangePatchHash(from, to *object.Commit) (hash string, ok bool) {
+// commitRangePatchHash hashes the normalised diff a commit range
+// introduces, comparable across branches. The second return value is
+// false when the range changes nothing.
+func commitRangePatchHash(from, to *object.Commit) (string, bool) {
 	fromTree, err := from.Tree()
 	if err != nil {
 		return "", false
@@ -325,6 +325,7 @@ func commitRangePatchHash(from, to *object.Commit) (hash string, ok bool) {
 	}
 
 	normalized := indexLineRe.ReplaceAllString(hunkHeaderRe.ReplaceAllString(patch.String(), "@@ @@"), "")
+	//nolint:gosec // identical to git patch-id, which also hashes with SHA-1
 	sum := sha1.Sum([]byte(normalized))
 
 	return hex.EncodeToString(sum[:]), true

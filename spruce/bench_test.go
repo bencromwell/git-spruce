@@ -17,7 +17,9 @@ import (
 // unmerged (local only, one commit ahead) and squash-merged branches.
 // It returns a GitSpruce over the repo and every branch ref, so a
 // benchmark iteration can restore the refs the previous run deleted.
-func buildBenchRepo(b *testing.B, gone, merged, unmerged, squashed int) (*spruce.GitSpruce, map[plumbing.ReferenceName]plumbing.Hash) {
+func buildBenchRepo(
+	b *testing.B, gone, merged, unmerged, squashed int,
+) (*spruce.GitSpruce, map[plumbing.ReferenceName]plumbing.Hash) {
 	b.Helper()
 
 	dir := b.TempDir()
@@ -27,35 +29,41 @@ func buildBenchRepo(b *testing.B, gone, merged, unmerged, squashed int) (*spruce
 	w, err := repo.Worktree()
 	require.NoError(b, err)
 
-	require.NoError(b, os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init\n"), 0644))
+	require.NoError(b, os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init\n"), 0o644))
 	_, err = w.Add("init.txt")
 	require.NoError(b, err)
 	baseHash, err := w.Commit("init", &git.CommitOptions{})
 	require.NoError(b, err)
 
 	// one commit ahead of the base, used for the unmerged branches
-	require.NoError(b, os.WriteFile(filepath.Join(dir, "unmerged.txt"), []byte("unmerged\n"), 0644))
+	require.NoError(b, os.WriteFile(filepath.Join(dir, "unmerged.txt"), []byte("unmerged\n"), 0o644))
 	_, err = w.Add("unmerged.txt")
 	require.NoError(b, err)
 	unmergedHash, err := w.Commit("unmerged work", &git.CommitOptions{})
 	require.NoError(b, err)
+
 	// put master back at the base commit
-	require.NoError(b, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("master"), baseHash)))
+	masterRef := plumbing.NewHashReference(plumbing.NewBranchReferenceName("master"), baseHash)
+	require.NoError(b, repo.Storer.SetReference(masterRef))
 
 	// one squash pair: same change on a branch and as a single commit on master
-	require.NoError(b, os.WriteFile(filepath.Join(dir, "squashed.txt"), []byte("squashed\n"), 0644))
+	require.NoError(b, os.WriteFile(filepath.Join(dir, "squashed.txt"), []byte("squashed\n"), 0o644))
 	_, err = w.Add("squashed.txt")
 	require.NoError(b, err)
 	squashHash, err := w.Commit("squash: add squashed.txt (#1)", &git.CommitOptions{})
 	require.NoError(b, err)
+
 	// branch tip carries the same diff over the base commit
-	require.NoError(b, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("squash/src"), baseHash)))
+	srcRef := plumbing.NewHashReference(plumbing.NewBranchReferenceName("squash/src"), baseHash)
+	require.NoError(b, repo.Storer.SetReference(srcRef))
 	require.NoError(b, w.Checkout(&git.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("squash/src")}))
 	squashBranchHash, err := w.Commit("feat: add squashed.txt", &git.CommitOptions{})
 	require.NoError(b, err)
 	require.NoError(b, w.Checkout(&git.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("master")}))
-	require.NoError(b, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("master"), squashHash)))
+	squashedMaster := plumbing.NewHashReference(plumbing.NewBranchReferenceName("master"), squashHash)
+	require.NoError(b, repo.Storer.SetReference(squashedMaster))
 
+	//nolint:exhaustive // only the refs under test belong here
 	refs := map[plumbing.ReferenceName]plumbing.Hash{
 		plumbing.NewBranchReferenceName("master"):           baseHash,
 		plumbing.NewRemoteReferenceName("origin", "master"): baseHash,
@@ -68,16 +76,16 @@ func buildBenchRepo(b *testing.B, gone, merged, unmerged, squashed int) (*spruce
 		}
 	}
 
-	for i := 0; i < gone; i++ {
+	for i := range gone {
 		addBranch(fmt.Sprintf("gone/%d", i), baseHash, false)
 	}
-	for i := 0; i < merged; i++ {
+	for i := range merged {
 		addBranch(fmt.Sprintf("merged/%d", i), baseHash, true)
 	}
-	for i := 0; i < unmerged; i++ {
+	for i := range unmerged {
 		addBranch(fmt.Sprintf("unmerged/%d", i), unmergedHash, false)
 	}
-	for i := 0; i < squashed; i++ {
+	for i := range squashed {
 		addBranch(fmt.Sprintf("squash/%d", i), squashBranchHash, true)
 	}
 
@@ -105,32 +113,42 @@ func restoreRefs(b *testing.B, gs *spruce.GitSpruce, refs map[plumbing.Reference
 	}
 }
 
+// spruceBenchIteration runs one full spruce pass: load branches, merged
+// and squash checks, delete.
+func spruceBenchIteration(b *testing.B, gs *spruce.GitSpruce) {
+	b.Helper()
+
+	branches, err := gs.LoadBranches()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for _, branch := range branches {
+		if !gs.BranchIsMerged(branch.Name) && !gs.BranchIsSquashMerged(branch.Name) {
+			continue
+		}
+
+		if _, deleteErr := gs.DeleteBranch(branch.Name); deleteErr != nil {
+			b.Fatal(deleteErr)
+		}
+	}
+}
+
 // BenchmarkSprucePipeline runs a full spruce (load branches, merged and
 // squash checks, delete) against repos with increasing numbers of gone
-// branches. Run with: make bench BENCH=SprucePipeline
+// branches. Run with: make bench BENCH=SprucePipeline.
 func BenchmarkSprucePipeline(b *testing.B) {
 	for _, gone := range []int{100, 1000, 5000} {
 		b.Run(fmt.Sprintf("gone=%d", gone), func(b *testing.B) {
 			gs, refs := buildBenchRepo(b, gone, 100, 100, 10)
 
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				b.StopTimer()
 				restoreRefs(b, gs, refs)
 				b.StartTimer()
 
-				branches, err := gs.LoadBranches()
-				if err != nil {
-					b.Fatal(err)
-				}
-
-				for _, branch := range branches {
-					if gs.BranchIsMerged(branch.Name) || gs.BranchIsSquashMerged(branch.Name) {
-						if _, err := gs.DeleteBranch(branch.Name); err != nil {
-							b.Fatal(err)
-						}
-					}
-				}
+				spruceBenchIteration(b, gs)
 			}
 		})
 	}

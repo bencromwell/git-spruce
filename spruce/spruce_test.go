@@ -16,7 +16,7 @@ import (
 )
 
 func initRepository(tempDir string, isBare bool) (*git.Repository, error) {
-	if err := os.Mkdir(tempDir, 0755); err != nil {
+	if err := os.Mkdir(tempDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
@@ -48,7 +48,7 @@ func createTestRepos(t *testing.T) TestRepos {
 
 	// Create a test file
 	testFile := filepath.Join(cloneDir, "test.txt")
-	err = os.WriteFile(testFile, []byte("test"), 0644)
+	err = os.WriteFile(testFile, []byte("test"), 0o644)
 	require.NoError(t, err)
 
 	cloneWorktree, err := clone.Worktree()
@@ -156,7 +156,7 @@ func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
 	require.NoError(t, err)
 
 	squashFile := filepath.Join(testRepos.cloneDir, "squash.txt")
-	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
 		Branch: plumbing.NewBranchReferenceName("master"),
 	})
 	require.NoError(t, err)
-	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
 		Create: true,
 	})
 	require.NoError(t, err)
-	err = os.WriteFile(squashFile, []byte("different change\n"), 0644)
+	err = os.WriteFile(squashFile, []byte("different change\n"), 0o644)
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
@@ -256,7 +256,7 @@ func TestGitSpruce_DeleteBranchWithoutForceRefusesUnmerged(t *testing.T) {
 	deleted, err := gs.DeleteBranch("tmp/test-two")
 	require.Error(t, err)
 	assert.False(t, deleted)
-	assert.ErrorContains(t, err, "is not merged")
+	require.ErrorContains(t, err, "is not merged")
 
 	// the branch must still exist
 	_, err = testRepos.clone.Reference(plumbing.NewBranchReferenceName("tmp/test-two"), false)
@@ -288,7 +288,7 @@ func TestGitSpruce_DeleteBranchWithoutForceDeletesSquashMergedWhenDetected(t *te
 	require.NoError(t, err)
 
 	squashFile := filepath.Join(testRepos.cloneDir, "squash.txt")
-	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
@@ -299,7 +299,7 @@ func TestGitSpruce_DeleteBranchWithoutForceDeletesSquashMergedWhenDetected(t *te
 		Branch: plumbing.NewBranchReferenceName("master"),
 	})
 	require.NoError(t, err)
-	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
@@ -326,5 +326,5 @@ func TestGitSpruce_DeleteBranchNotFound(t *testing.T) {
 	deleted, err := gs.DeleteBranch("tmp/no-such-branch")
 	require.Error(t, err)
 	assert.False(t, deleted)
-	assert.ErrorContains(t, err, "not found")
+	require.ErrorContains(t, err, "not found")
 }

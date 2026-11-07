@@ -1,6 +1,4 @@
-package cmd
-
-//nolint:testpackage // tests loadConfig directly, which is unexported
+package cmd //nolint:testpackage // loadConfig is unexported and this tests it directly
 
 import (
 	"os"
@@ -36,7 +34,7 @@ func TestLoadConfigExplicitFile(t *testing.T) {
 	resetViper(t)
 
 	configPath := filepath.Join(t.TempDir(), "custom-config.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte("merge_base: custom-base\n"), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte("merge_base: custom-base\n"), 0o644))
 
 	rootCmd := rootCommandWithConfigFlag(t, []string{"--config", configPath})
 	require.NoError(t, loadConfig(rootCmd))
@@ -60,7 +58,7 @@ func TestLoadConfigInvalidYamlFails(t *testing.T) {
 	resetViper(t)
 
 	configPath := filepath.Join(t.TempDir(), "broken.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte("merge_base: [unclosed\n"), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte("merge_base: [unclosed\n"), 0o644))
 
 	rootCmd := rootCommandWithConfigFlag(t, []string{"--config", configPath})
 	require.Error(t, loadConfig(rootCmd))

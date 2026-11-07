@@ -45,12 +45,10 @@ func NewRootCommand(version, commit string) *cobra.Command {
 }
 
 func loadConfig(cmd *cobra.Command) error {
-	cfgFile, err := cmd.Flags().GetString("config")
-	if err != nil {
-		return err
+	cfgFile, flagErr := cmd.Flags().GetString("config")
+	if flagErr != nil {
+		return flagErr
 	}
-
-	fmt.Fprintln(os.Stderr, "DBG cfgFile:", cfgFile)
 
 	// SetConfigName resets an explicitly set config file, so it only
 	// runs when searching for the default .git-spruce.yaml
@@ -59,9 +57,9 @@ func loadConfig(cmd *cobra.Command) error {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return homeErr
 		}
 
 		// search order: working directory, then home, so a repo-level
@@ -71,13 +69,13 @@ func loadConfig(cmd *cobra.Command) error {
 		viper.SetConfigName(".git-spruce")
 	}
 
-	if err := viper.ReadInConfig(); err != nil {
+	if readErr := viper.ReadInConfig(); readErr != nil {
 		var notFound viper.ConfigFileNotFoundError
-		if errors.As(err, &notFound) {
+		if errors.As(readErr, &notFound) {
 			return nil
 		}
 
-		return err
+		return readErr
 	}
 
 	pterm.Info.Println("Using config file:", viper.ConfigFileUsed())
@@ -124,10 +122,11 @@ func execute(cmd *cobra.Command, _ []string) {
 	// refresh remote refs before checking branches; private remotes can
 	// still fail on auth, in which case the checks run on local state
 	pruneFlag, _ := cmd.Flags().GetBool("prune")
-	if _, err := repo.Remote(gitSpruce.Origin); err == nil {
-		err := gitSpruce.Fetch(pruneFlag)
-		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) && !errors.Is(err, transport.ErrEmptyRemoteRepository) {
-			pterm.Warning.Println("Could not fetch from", gitSpruce.Origin+":", err)
+	if _, remoteErr := repo.Remote(gitSpruce.Origin); remoteErr == nil {
+		fetchErr := gitSpruce.Fetch(pruneFlag)
+		upToDate := errors.Is(fetchErr, git.NoErrAlreadyUpToDate) || errors.Is(fetchErr, transport.ErrEmptyRemoteRepository)
+		if fetchErr != nil && !upToDate {
+			pterm.Warning.Println("Could not fetch from", gitSpruce.Origin+":", fetchErr)
 		}
 	}
 
@@ -138,12 +137,13 @@ func execute(cmd *cobra.Command, _ []string) {
 	for _, branch := range branches {
 		mergeType := "merged"
 
-		if gitSpruce.BranchIsMerged(branch.Name) {
+		switch {
+		case gitSpruce.BranchIsMerged(branch.Name):
 			totalMerged++
-		} else if detectSquash && gitSpruce.BranchIsSquashMerged(branch.Name) {
+		case detectSquash && gitSpruce.BranchIsSquashMerged(branch.Name):
 			mergeType = "squash-merged"
 			totalSquashMerged++
-		} else {
+		default:
 			totalNotMerged++
 			pterm.Info.Println("Branch is not merged:", branch.Name)
 
@@ -161,8 +161,8 @@ func execute(cmd *cobra.Command, _ []string) {
 			continue
 		}
 
-		if _, err := gitSpruce.DeleteBranch(branch.Name); err != nil {
-			pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, err)
+		if _, deleteErr := gitSpruce.DeleteBranch(branch.Name); deleteErr != nil {
+			pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, deleteErr)
 
 			continue
 		}
@@ -173,7 +173,10 @@ func execute(cmd *cobra.Command, _ []string) {
 
 	tableData := pterm.TableData{
 		{"Merged", "Squash merged", "Not merged", "Removed"},
-		{strconv.Itoa(totalMerged), strconv.Itoa(totalSquashMerged), strconv.Itoa(totalNotMerged), strconv.Itoa(totalRemoved)},
+		{
+			strconv.Itoa(totalMerged), strconv.Itoa(totalSquashMerged),
+			strconv.Itoa(totalNotMerged), strconv.Itoa(totalRemoved),
+		},
 	}
 
 	Must(pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(tableData).Render())
@@ -182,7 +185,6 @@ func execute(cmd *cobra.Command, _ []string) {
 func canDeleteBranch(requireConfirmation bool, branchName, mergeType string) (bool, error) {
 	if requireConfirmation {
 		confirm, err := userConfirmsDeletingBranch(branchName, mergeType)
-
 		if err != nil {
 			return false, fmt.Errorf("error confirming branch deletion: %w", err)
 		}
