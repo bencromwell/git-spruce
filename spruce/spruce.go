@@ -50,10 +50,7 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 	// one pass over all refs: collect branch refs and remote refs, then
 	// mark gone branches from the in-memory set
 	remoteRefs := map[string]struct{}{}
-	type localBranch struct {
-		name string
-	}
-	var locals []localBranch
+	var locals []string
 
 	err = refs.ForEach(func(ref *plumbing.Reference) error {
 		name := ref.Name()
@@ -66,7 +63,7 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 		if name.IsBranch() {
 			branchName := name.Short()
 			if !gs.isBranchIgnored(branchName) {
-				locals = append(locals, localBranch{name: branchName})
+				locals = append(locals, branchName)
 			}
 		}
 
@@ -79,12 +76,12 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 
 	branchList := make([]GitBranch, 0, len(locals))
 
-	for _, local := range locals {
-		refName := plumbing.NewRemoteReferenceName(gs.Origin, local.name)
+	for _, branchName := range locals {
+		refName := plumbing.NewRemoteReferenceName(gs.Origin, branchName)
 		_, refExists := remoteRefs[refName.String()]
 
 		branchList = append(branchList, GitBranch{
-			Name:   local.name,
+			Name:   branchName,
 			IsGone: !refExists,
 		})
 	}
