@@ -316,6 +316,23 @@ func TestGitSpruce_DeleteBranchWithoutForceDeletesSquashMergedWhenDetected(t *te
 	assert.True(t, deleted)
 }
 
+func TestGitSpruce_BranchTipHash(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	tip, ok := gs.BranchTipHash("tmp/test-one")
+	require.True(t, ok)
+
+	ref, err := testRepos.clone.Reference(plumbing.NewBranchReferenceName("tmp/test-one"), false)
+	require.NoError(t, err)
+	assert.Equal(t, ref.Hash(), tip)
+
+	_, ok = gs.BranchTipHash("tmp/no-such-branch")
+	assert.False(t, ok)
+}
+
 func TestGitSpruce_DeleteBranchNotFound(t *testing.T) {
 	testRepos := createTestRepos(t)
 

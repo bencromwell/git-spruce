@@ -9,6 +9,7 @@ import (
 
 	"github.com/bencromwell/git-spruce/spruce"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -150,25 +151,9 @@ func execute(cmd *cobra.Command, _ []string) {
 			continue
 		}
 
-		canDeleteBranch, canDeleteBranchError := canDeleteBranch(requireConfirmation, branch.Name, mergeType)
-		if canDeleteBranchError != nil {
-			pterm.Error.Println(canDeleteBranchError)
-
-			continue
+		if removeBranch(gitSpruce, requireConfirmation, branch.Name, mergeType) {
+			totalRemoved++
 		}
-
-		if !canDeleteBranch {
-			continue
-		}
-
-		if _, deleteErr := gitSpruce.DeleteBranch(branch.Name); deleteErr != nil {
-			pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, deleteErr)
-
-			continue
-		}
-
-		pterm.Success.Println("Branch deleted:", branch.Name)
-		totalRemoved++
 	}
 
 	tableData := pterm.TableData{
@@ -180,6 +165,43 @@ func execute(cmd *cobra.Command, _ []string) {
 	}
 
 	Must(pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(tableData).Render())
+}
+
+func deletedBranchMessage(branchName string, tip plumbing.Hash, tipKnown bool) string {
+	if !tipKnown {
+		return "Branch deleted: " + branchName
+	}
+
+	return fmt.Sprintf("Branch deleted: %s (was %s)", branchName, tip)
+}
+
+// removeBranch confirms with the user, deletes the branch and reports
+// the outcome, returning whether the branch was removed.
+func removeBranch(gitSpruce *spruce.GitSpruce, requireConfirmation bool, branchName, mergeType string) bool {
+	canDelete, canDeleteError := canDeleteBranch(requireConfirmation, branchName, mergeType)
+	if canDeleteError != nil {
+		pterm.Error.Println(canDeleteError)
+
+		return false
+	}
+
+	if !canDelete {
+		return false
+	}
+
+	// resolve the tip before the delete removes the ref, so the hash
+	// can be reported and the branch recovered from the reflog
+	tip, tipKnown := gitSpruce.BranchTipHash(branchName)
+
+	if _, deleteErr := gitSpruce.DeleteBranch(branchName); deleteErr != nil {
+		pterm.Error.Printf("Error deleting branch [%s]: %s\n", branchName, deleteErr)
+
+		return false
+	}
+
+	pterm.Success.Println(deletedBranchMessage(branchName, tip, tipKnown))
+
+	return true
 }
 
 func canDeleteBranch(requireConfirmation bool, branchName, mergeType string) (bool, error) {

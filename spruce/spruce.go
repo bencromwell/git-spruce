@@ -163,6 +163,17 @@ func (gs *GitSpruce) commitObject(hash plumbing.Hash) (*object.Commit, error) {
 	return commit, nil
 }
 
+// BranchTipHash resolves a branch to the hash of its tip commit, for
+// reporting before a deletion removes the ref.
+func (gs *GitSpruce) BranchTipHash(branchName string) (plumbing.Hash, bool) {
+	commit, ok := gs.branchCommit(branchName)
+	if !ok {
+		return plumbing.ZeroHash, false
+	}
+
+	return commit.Hash, true
+}
+
 func (gs *GitSpruce) BranchIsMerged(branchName string) bool {
 	base := gs.baseCommit()
 	if base == nil {
