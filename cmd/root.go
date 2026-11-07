@@ -46,6 +46,7 @@ func NewRootCommand(version, commit string) *cobra.Command {
 	viper.SetDefault("merge_base", "main")
 	viper.SetDefault("origin", "origin")
 	viper.SetDefault("ignore_branches", []string{"develop", "main", "master"})
+	viper.SetDefault("squash_merged", false)
 
 	// viper.AutomaticEnv() // read in environment variables that match
 
@@ -65,6 +66,7 @@ func NewRootCommand(version, commit string) *cobra.Command {
 	rootCmd.Flags().BoolP("prune", "p", false, "Runs prune when fetching.")
 	rootCmd.Flags().BoolP("force", "f", false, "Runs git branch -D on detected branches.")
 	rootCmd.Flags().BoolP("yes-all", "y", false, "No confirmation for each branch, removes all detected branches.")
+	rootCmd.Flags().BoolP("squash", "s", false, "Also removes branches that were squash-merged into the merge base.")
 
 	// optional flag for a path to the repo, default to "" or current working directory where you called the command from
 	rootCmd.Flags().String("repo", "", "Path of the git repository to spruce.")
@@ -97,10 +99,16 @@ func execute(cmd *cobra.Command, _ []string) {
 		RepoPath:         repoPath,
 	}
 
+	squashFlag, _ := cmd.Flags().GetBool("squash")
+	gitSpruce.DetectSquash = squashFlag || config.GetBool("squash_merged")
+
 	// if the user flagged yes to all, we don't need to confirm each branch's deletion
 	requireConfirmation := !cmd.Flags().Changed("yes-all")
 
+	detectSquash := gitSpruce.DetectSquash
+
 	totalMerged := 0
+	totalSquashMerged := 0
 	totalNotMerged := 0
 	totalRemoved := 0
 
@@ -116,11 +124,20 @@ func execute(cmd *cobra.Command, _ []string) {
 		// fmt.Println("Branch", branch.Name, "is gone.")
 		// continue
 		// }
-		if gitSpruce.BranchIsMerged(branch.Name) {
+		merged := gitSpruce.BranchIsMerged(branch.Name)
+		mergeType := "merged"
+
+		if !merged && detectSquash && gitSpruce.BranchIsSquashMerged(branch.Name) {
+			merged = true
+			mergeType = "squash-merged"
+			totalSquashMerged++
+		}
+
+		if merged {
 			totalMerged++
 
 			// if they didn't select yes-all ask them to confirm deleting this branch
-			canDeleteBranch, canDeleteBranchError := canDeleteBranch(requireConfirmation, branch.Name)
+			canDeleteBranch, canDeleteBranchError := canDeleteBranch(requireConfirmation, branch.Name, mergeType)
 
 			if canDeleteBranchError != nil {
 				pterm.Error.Println(canDeleteBranchError)
@@ -147,16 +164,16 @@ func execute(cmd *cobra.Command, _ []string) {
 	}
 
 	tableData := pterm.TableData{
-		{"Merged", "Not merged", "Removed"},
-		{strconv.Itoa(totalMerged), strconv.Itoa(totalNotMerged), strconv.Itoa(totalRemoved)},
+		{"Merged", "Squash merged", "Not merged", "Removed"},
+		{strconv.Itoa(totalMerged), strconv.Itoa(totalSquashMerged), strconv.Itoa(totalNotMerged), strconv.Itoa(totalRemoved)},
 	}
 
 	Must(pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(tableData).Render())
 }
 
-func canDeleteBranch(requireConfirmation bool, branchName string) (bool, error) {
+func canDeleteBranch(requireConfirmation bool, branchName, mergeType string) (bool, error) {
 	if requireConfirmation {
-		confirm, err := userConfirmsDeletingBranch(branchName)
+		confirm, err := userConfirmsDeletingBranch(branchName, mergeType)
 
 		if err != nil {
 			return false, fmt.Errorf("error confirming branch deletion: %w", err)
@@ -171,9 +188,9 @@ func canDeleteBranch(requireConfirmation bool, branchName string) (bool, error) 
 	return true, nil
 }
 
-func userConfirmsDeletingBranch(branchName string) (bool, error) {
+func userConfirmsDeletingBranch(branchName, mergeType string) (bool, error) {
 	var confirm string
-	pterm.Print(pterm.Yellow("Branch " + branchName + " is merged. Remove it? (y/n): "))
+	pterm.Print(pterm.Yellow("Branch " + branchName + " is " + mergeType + ". Remove it? (y/n): "))
 
 	_, err := fmt.Scanln(&confirm)
 	if err != nil {

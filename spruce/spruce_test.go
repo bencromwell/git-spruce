@@ -163,6 +163,60 @@ func TestGitSpruce_BranchIsMerged(t *testing.T) {
 	assert.False(t, isMerged)
 }
 
+func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	// branch with a real change, not merged in the ancestor sense
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/squash-test"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	squashFile := filepath.Join(testRepos.cloneDir, "squash.txt")
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{})
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("master"),
+	})
+	require.NoError(t, err)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{})
+	require.NoError(t, err)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	assert.False(t, gs.BranchIsMerged("tmp/squash-test"))
+	assert.True(t, gs.BranchIsSquashMerged("tmp/squash-test"))
+
+	// a branch with a different change is not squash-merged
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/not-squashed"),
+		Create: true,
+	})
+	require.NoError(t, err)
+	err = os.WriteFile(squashFile, []byte("different change\n"), 0644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("feat: different change", &git.CommitOptions{})
+	require.NoError(t, err)
+
+	assert.False(t, gs.BranchIsSquashMerged("tmp/not-squashed"))
+}
+
 func TestGitSpruce_DeleteBranch(t *testing.T) {
 	testRepos := createTestRepos(t)
 
