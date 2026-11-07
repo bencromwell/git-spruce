@@ -9,6 +9,7 @@ import (
 
 	"github.com/bencromwell/git-spruce/spruce"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -120,8 +121,15 @@ func execute(cmd *cobra.Command, _ []string) {
 	totalNotMerged := 0
 	totalRemoved := 0
 
-	// @todo fix auth when fetching
-	// gitSpruce.Fetch(rootCmd.Flags().Changed("prune"))
+	// refresh remote refs before checking branches; private remotes can
+	// still fail on auth, in which case the checks run on local state
+	pruneFlag, _ := cmd.Flags().GetBool("prune")
+	if _, err := repo.Remote(gitSpruce.Origin); err == nil {
+		err := gitSpruce.Fetch(pruneFlag)
+		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) && !errors.Is(err, transport.ErrEmptyRemoteRepository) {
+			pterm.Warning.Println("Could not fetch from", gitSpruce.Origin+":", err)
+		}
+	}
 
 	branches, err := gitSpruce.LoadBranches()
 	Must(err)
