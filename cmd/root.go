@@ -134,48 +134,41 @@ func execute(cmd *cobra.Command, _ []string) {
 	branches, err := gitSpruce.LoadBranches()
 	Must(err)
 
+	// TODO: add an option to delete gone branches (IsGone)
 	for _, branch := range branches {
-		// @todo add an option to delete gone branches
-		// if branch.IsGone {
-		// fmt.Println("Branch", branch.Name, "is gone.")
-		// continue
-		// }
-		merged := gitSpruce.BranchIsMerged(branch.Name)
 		mergeType := "merged"
 
-		if !merged && detectSquash && gitSpruce.BranchIsSquashMerged(branch.Name) {
-			merged = true
+		if gitSpruce.BranchIsMerged(branch.Name) {
+			totalMerged++
+		} else if detectSquash && gitSpruce.BranchIsSquashMerged(branch.Name) {
 			mergeType = "squash-merged"
 			totalSquashMerged++
-		}
-
-		if merged {
-			totalMerged++
-
-			// if they didn't select yes-all ask them to confirm deleting this branch
-			canDeleteBranch, canDeleteBranchError := canDeleteBranch(requireConfirmation, branch.Name, mergeType)
-
-			if canDeleteBranchError != nil {
-				pterm.Error.Println(canDeleteBranchError)
-				continue
-			}
-
-			if !canDeleteBranch {
-				pterm.Warning.Println("Branch not removed:", branch.Name)
-				continue
-			}
-
-			if _, err := gitSpruce.DeleteBranch(branch.Name); err != nil {
-				pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, err)
-				continue
-			}
-
-			pterm.Success.Println("Branch deleted:", branch.Name)
-			totalRemoved++
 		} else {
-			pterm.Info.Println("Branch is not merged:", branch.Name)
 			totalNotMerged++
+			pterm.Info.Println("Branch is not merged:", branch.Name)
+
+			continue
 		}
+
+		canDeleteBranch, canDeleteBranchError := canDeleteBranch(requireConfirmation, branch.Name, mergeType)
+		if canDeleteBranchError != nil {
+			pterm.Error.Println(canDeleteBranchError)
+
+			continue
+		}
+
+		if !canDeleteBranch {
+			continue
+		}
+
+		if _, err := gitSpruce.DeleteBranch(branch.Name); err != nil {
+			pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, err)
+
+			continue
+		}
+
+		pterm.Success.Println("Branch deleted:", branch.Name)
+		totalRemoved++
 	}
 
 	tableData := pterm.TableData{
