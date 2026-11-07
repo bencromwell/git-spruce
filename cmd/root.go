@@ -154,9 +154,8 @@ func execute(cmd *cobra.Command, _ []string) {
 				continue
 			}
 
-			deleted, deleteBranchError := gitSpruce.DeleteBranch(branch.Name)
-			if !deleted {
-				pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, deleteBranchError)
+			if _, err := gitSpruce.DeleteBranch(branch.Name); err != nil {
+				pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, err)
 				continue
 			}
 

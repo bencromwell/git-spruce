@@ -358,12 +358,24 @@ func (gs *GitSpruce) DeleteBranch(branchName string) (bool, error) {
 
 	// without Force, behave like git branch -d and refuse unmerged branches
 	if !gs.Force {
-		base := gs.baseCommit()
 		branchCommit, ok := gs.branchCommit(branchName)
-		if !ok || base == nil || (!gs.isMerged(branchCommit, base) && !(gs.DetectSquash && gs.BranchIsSquashMerged(branchName))) {
+		if !ok {
+			return false, fmt.Errorf("branch %s not found", branchName)
+		}
+
+		base := gs.baseCommit()
+		if base == nil {
+			return false, fmt.Errorf("cannot delete branch %s: merge base %s could not be resolved", branchName, gs.MergeBase)
+		}
+
+		if !gs.isMerged(branchCommit, base) && !(gs.DetectSquash && gs.BranchIsSquashMerged(branchName)) {
 			return false, fmt.Errorf("branch %s is not merged; use Force to delete anyway", branchName)
 		}
 	}
 
-	return true, gs.Repo.Storer.RemoveReference(ref)
+	if err := gs.Repo.Storer.RemoveReference(ref); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }

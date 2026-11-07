@@ -266,3 +266,86 @@ func TestGitSpruce_DeleteBranchWithForceFailsIfBranchCheckedOut(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, deleted)
 }
+
+func TestGitSpruce_DeleteBranchWithoutForceRefusesUnmerged(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	deleted, err := gs.DeleteBranch("tmp/test-two")
+	require.Error(t, err)
+	assert.False(t, deleted)
+	assert.ErrorContains(t, err, "is not merged")
+
+	// the branch must still exist
+	_, err = testRepos.clone.Reference(plumbing.NewBranchReferenceName("tmp/test-two"), false)
+	require.NoError(t, err)
+}
+
+func TestGitSpruce_DeleteBranchWithoutForceDeletesMerged(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	deleted, err := gs.DeleteBranch("tmp/test-one")
+	require.NoError(t, err)
+	assert.True(t, deleted)
+}
+
+func TestGitSpruce_DeleteBranchWithoutForceDeletesSquashMergedWhenDetected(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/squash-test"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	squashFile := filepath.Join(testRepos.cloneDir, "squash.txt")
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{})
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("master"),
+	})
+	require.NoError(t, err)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{})
+	require.NoError(t, err)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+	gs.DetectSquash = true
+
+	deleted, err := gs.DeleteBranch("tmp/squash-test")
+	require.NoError(t, err)
+	assert.True(t, deleted)
+}
+
+func TestGitSpruce_DeleteBranchNotFound(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	deleted, err := gs.DeleteBranch("tmp/no-such-branch")
+	require.Error(t, err)
+	assert.False(t, deleted)
+	assert.ErrorContains(t, err, "not found")
+}
