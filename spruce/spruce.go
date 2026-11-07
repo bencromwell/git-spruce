@@ -24,6 +24,13 @@ type GitSpruce struct {
 	DetectSquash     bool
 	Repo             *git.Repository
 	RepoPath         string
+
+	// caches: go-git re-reads ref and object files from disk on every
+	// lookup, which dominates when checking many branches
+	base        *object.Commit
+	commits     map[plumbing.Hash]*object.Commit
+	basePatches map[string]struct{}
+	head        plumbing.ReferenceName
 }
 
 func (gs *GitSpruce) Fetch(prune bool) error {
@@ -35,41 +42,51 @@ func (gs *GitSpruce) Fetch(prune bool) error {
 }
 
 func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
-	branches, err := gs.Repo.Branches()
-
+	refs, err := gs.Repo.References()
 	if err != nil {
 		return nil, err
 	}
 
-	remoteRefs, err := gs.remoteRefNames()
-	if err != nil {
-		return nil, err
+	// one pass over all refs: collect branch refs and remote refs, then
+	// mark gone branches from the in-memory set
+	remoteRefs := map[string]struct{}{}
+	type localBranch struct {
+		name string
 	}
+	var locals []localBranch
 
-	branchList := []GitBranch{}
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		name := ref.Name()
 
-	err = branches.ForEach(func(ref *plumbing.Reference) error {
-		branchName := ref.Name().Short()
-
-		if gs.isBranchIgnored(branchName) {
+		if name.IsRemote() {
+			remoteRefs[name.String()] = struct{}{}
 			return nil
 		}
 
-		refName := plumbing.NewRemoteReferenceName(gs.Origin, branchName)
-		_, refExists := remoteRefs[refName.String()]
-
-		branch := GitBranch{
-			Name:   branchName,
-			IsGone: !refExists,
+		if name.IsBranch() {
+			branchName := name.Short()
+			if !gs.isBranchIgnored(branchName) {
+				locals = append(locals, localBranch{name: branchName})
+			}
 		}
-
-		branchList = append(branchList, branch)
 
 		return nil
 	})
 
 	if err != nil {
 		return nil, err
+	}
+
+	branchList := make([]GitBranch, 0, len(locals))
+
+	for _, local := range locals {
+		refName := plumbing.NewRemoteReferenceName(gs.Origin, local.name)
+		_, refExists := remoteRefs[refName.String()]
+
+		branchList = append(branchList, GitBranch{
+			Name:   local.name,
+			IsGone: !refExists,
+		})
 	}
 
 	return branchList, nil
@@ -85,37 +102,83 @@ func (gs *GitSpruce) isBranchIgnored(branchName string) bool {
 	return false
 }
 
-// One pass over all refs, so checking N branches costs one ref walk, not N.
-func (gs *GitSpruce) remoteRefNames() (map[string]struct{}, error) {
-	remoteRefs := map[string]struct{}{}
-
-	refs, err := gs.Repo.References()
-	if err != nil {
-		return nil, err
+// baseCommit resolves and caches the merge base commit.
+func (gs *GitSpruce) baseCommit() *object.Commit {
+	if gs.base != nil {
+		return gs.base
 	}
 
-	err = refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name().IsRemote() {
-			remoteRefs[ref.Name().String()] = struct{}{}
-		}
-
+	name := gs.firstValidBase()
+	if name == "" {
 		return nil
-	})
+	}
 
+	hash, err := gs.Repo.ResolveRevision(plumbing.Revision(name))
+	if err != nil {
+		return nil
+	}
+
+	commit, err := gs.commitObject(*hash)
+	if err != nil {
+		return nil
+	}
+
+	gs.base = commit
+
+	return commit
+}
+
+// branchCommit resolves a branch name straight to its ref hash, falling
+// back to revision parsing for non-branch names, and caches the commit.
+func (gs *GitSpruce) branchCommit(branchName string) (*object.Commit, bool) {
+	ref, err := gs.Repo.Reference(plumbing.NewBranchReferenceName(branchName), false)
+	if err != nil {
+		hash, rerr := gs.Repo.ResolveRevision(plumbing.Revision(branchName))
+		if rerr != nil {
+			return nil, false
+		}
+		ref = plumbing.NewHashReference(plumbing.NewBranchReferenceName(branchName), *hash)
+	}
+
+	commit, err := gs.commitObject(ref.Hash())
+	if err != nil {
+		return nil, false
+	}
+
+	return commit, true
+}
+
+func (gs *GitSpruce) commitObject(hash plumbing.Hash) (*object.Commit, error) {
+	if gs.commits == nil {
+		gs.commits = map[plumbing.Hash]*object.Commit{}
+	}
+
+	if commit, ok := gs.commits[hash]; ok {
+		return commit, nil
+	}
+
+	commit, err := gs.Repo.CommitObject(hash)
 	if err != nil {
 		return nil, err
 	}
 
-	return remoteRefs, nil
+	gs.commits[hash] = commit
+
+	return commit, nil
 }
 
 func (gs *GitSpruce) BranchIsMerged(branchName string) bool {
-	base := gs.firstValidBase()
-	if base == "" {
+	base := gs.baseCommit()
+	if base == nil {
 		return false
 	}
 
-	return gs.isMerged(branchName, base)
+	branchCommit, ok := gs.branchCommit(branchName)
+	if !ok {
+		return false
+	}
+
+	return gs.isMerged(branchCommit, base)
 }
 
 func (gs *GitSpruce) firstValidBase() string {
@@ -143,29 +206,9 @@ func (gs *GitSpruce) isValidReference(refName string) bool {
 	return err == nil
 }
 
-func (gs *GitSpruce) isMerged(branchName string, base string) bool {
-	// equivalent to git merge-base --is-ancestor %s %s
+func (gs *GitSpruce) isMerged(branchCommit, baseCommit *object.Commit) bool {
+	// equivalent to git merge-base --is-ancestor
 	// https://github.com/go-git/go-git/blob/master/_examples/merge_base/main.go
-
-	branchHash, err := gs.Repo.ResolveRevision(plumbing.Revision(branchName))
-	if err != nil {
-		return false
-	}
-
-	baseHash, err := gs.Repo.ResolveRevision(plumbing.Revision(base))
-	if err != nil {
-		return false
-	}
-
-	branchCommit, err := gs.Repo.CommitObject(*branchHash)
-	if err != nil {
-		return false
-	}
-
-	baseCommit, err := gs.Repo.CommitObject(*baseHash)
-	if err != nil {
-		return false
-	}
 
 	isAncestor, err := branchCommit.IsAncestor(baseCommit)
 	if err != nil {
@@ -190,32 +233,17 @@ const maxSquashScanCommits = 1000
 // base, but the diff from the merge base to the branch tip matches the diff
 // of some commit on the base.
 func (gs *GitSpruce) BranchIsSquashMerged(branchName string) bool {
-	base := gs.firstValidBase()
-	if base == "" {
+	base := gs.baseCommit()
+	if base == nil {
 		return false
 	}
 
-	branchHash, err := gs.Repo.ResolveRevision(plumbing.Revision(branchName))
-	if err != nil {
+	branchCommit, ok := gs.branchCommit(branchName)
+	if !ok {
 		return false
 	}
 
-	baseHash, err := gs.Repo.ResolveRevision(plumbing.Revision(base))
-	if err != nil {
-		return false
-	}
-
-	branchCommit, err := gs.Repo.CommitObject(*branchHash)
-	if err != nil {
-		return false
-	}
-
-	baseCommit, err := gs.Repo.CommitObject(*baseHash)
-	if err != nil {
-		return false
-	}
-
-	mergeBases, err := branchCommit.MergeBase(baseCommit)
+	mergeBases, err := branchCommit.MergeBase(base)
 	if err != nil || len(mergeBases) == 0 {
 		return false
 	}
@@ -225,20 +253,36 @@ func (gs *GitSpruce) BranchIsSquashMerged(branchName string) bool {
 		return false
 	}
 
-	iter, err := gs.Repo.Log(&git.LogOptions{From: *baseHash})
+	_, match := gs.basePatchSet()[branchPatch]
+
+	return match
+}
+
+// basePatchSet lazily hashes the diff of every plain commit on the base,
+// once, so N squash checks against the base cost one walk, not N.
+func (gs *GitSpruce) basePatchSet() map[string]struct{} {
+	if gs.basePatches != nil {
+		return gs.basePatches
+	}
+
+	set := map[string]struct{}{}
+	gs.basePatches = set
+
+	base := gs.baseCommit()
+	if base == nil {
+		return set
+	}
+
+	iter, err := gs.Repo.Log(&git.LogOptions{From: base.Hash})
 	if err != nil {
-		return false
+		return set
 	}
 	defer iter.Close()
 
 	for i := 0; i < maxSquashScanCommits; i++ {
 		commit, err := iter.Next()
 		if err != nil {
-			return false
-		}
-
-		if commit.Hash == mergeBases[0].Hash {
-			return false
+			return set
 		}
 
 		// only plain commits have a single parent diff; merge commits on
@@ -247,17 +291,17 @@ func (gs *GitSpruce) BranchIsSquashMerged(branchName string) bool {
 			continue
 		}
 
-		parent, err := gs.Repo.CommitObject(commit.ParentHashes[0])
+		parent, err := gs.commitObject(commit.ParentHashes[0])
 		if err != nil {
 			continue
 		}
 
-		if patch, ok := commitRangePatchHash(parent, commit); ok && patch == branchPatch {
-			return true
+		if hash, ok := commitRangePatchHash(parent, commit); ok {
+			set[hash] = struct{}{}
 		}
 	}
 
-	return false
+	return set
 }
 
 // commitRangePatchHash hashes the normalised diff a commit range introduces,
@@ -289,22 +333,36 @@ func commitRangePatchHash(from, to *object.Commit) (hash string, ok bool) {
 	return hex.EncodeToString(sum[:]), true
 }
 
-func (gs *GitSpruce) DeleteBranch(branchName string) (bool, error) {
-	ref := plumbing.NewBranchReferenceName(branchName)
+func (gs *GitSpruce) headName() plumbing.ReferenceName {
+	if gs.head != "" {
+		return gs.head
+	}
 
 	head, err := gs.Repo.Head()
 	if err != nil {
-		return false, err
+		return ""
 	}
 
+	gs.head = head.Name()
+
+	return gs.head
+}
+
+func (gs *GitSpruce) DeleteBranch(branchName string) (bool, error) {
+	ref := plumbing.NewBranchReferenceName(branchName)
+
 	// as with git branch -d, refuse to delete the checked-out branch
-	if head.Name() == ref {
+	if gs.headName() == ref {
 		return false, fmt.Errorf("cannot delete branch %s: it is the current branch", branchName)
 	}
 
 	// without Force, behave like git branch -d and refuse unmerged branches
-	if !gs.Force && !gs.isMerged(branchName, gs.MergeBase) && !(gs.DetectSquash && gs.BranchIsSquashMerged(branchName)) {
-		return false, fmt.Errorf("branch %s is not merged; use Force to delete anyway", branchName)
+	if !gs.Force {
+		base := gs.baseCommit()
+		branchCommit, ok := gs.branchCommit(branchName)
+		if !ok || base == nil || (!gs.isMerged(branchCommit, base) && !(gs.DetectSquash && gs.BranchIsSquashMerged(branchName))) {
+			return false, fmt.Errorf("branch %s is not merged; use Force to delete anyway", branchName)
+		}
 	}
 
 	return true, gs.Repo.Storer.RemoveReference(ref)
