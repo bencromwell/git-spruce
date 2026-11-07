@@ -2,6 +2,7 @@ package cmd
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -17,72 +18,76 @@ import (
 var helpText string
 
 func NewRootCommand(version, commit string) *cobra.Command {
-	// rootCmd represents the base command when called without any subcommands
-	var rootCmd = &cobra.Command{
+	rootCmd := &cobra.Command{
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 		Use:     "git-spruce",
 		Short:   "Removes branches that have been merged to the configured merge base branch.",
 		Long:    "git-spruce " + version + "\n" + helpText,
-		// Uncomment the following line if your bare application
-		// has an action associated with it:
-		Run: execute,
+		Run:     execute,
 	}
-
-	var (
-		cfgFile string
-		err     error
-	)
-
-	home, err := os.UserHomeDir()
-	cobra.CheckErr(err)
-
-	// Search config in home directory with name ".git-spruce" (without extension).
-	viper.AddConfigPath(home)
-	viper.SetConfigType("yaml")
-	viper.SetConfigName(".git-spruce")
-	// look for config in the working directory
-	viper.AddConfigPath(".")
 
 	viper.SetDefault("merge_base", "main")
 	viper.SetDefault("origin", "origin")
 	viper.SetDefault("ignore_branches", []string{"develop", "main", "master"})
 	viper.SetDefault("squash_merged", false)
 
-	// viper.AutomaticEnv() // read in environment variables that match
+	rootCmd.PersistentFlags().String("config", "", "config file (default is $HOME/.git-spruce.yaml)")
 
-	// If a config file is found, read it in.
-	if err = viper.ReadInConfig(); err == nil {
-		pterm.Info.Println("Using config file:", viper.ConfigFileUsed())
-	}
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.git-spruce.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
 	rootCmd.Flags().BoolP("prune", "p", false, "Runs prune when fetching.")
 	rootCmd.Flags().BoolP("force", "f", false, "Runs git branch -D on detected branches.")
 	rootCmd.Flags().BoolP("yes-all", "y", false, "No confirmation for each branch, removes all detected branches.")
 	rootCmd.Flags().BoolP("squash", "s", false, "Also removes branches that were squash-merged into the merge base.")
 
-	// optional flag for a path to the repo, default to "" or current working directory where you called the command from
 	rootCmd.Flags().String("repo", "", "Path of the git repository to spruce.")
 
 	return rootCmd
 }
 
-func execute(cmd *cobra.Command, _ []string) {
-	// get the config from Viper
-	config := viper.GetViper()
-
-	// if they passed --help or -h, exit
-	// Cobra will print the help text for us
-	if cmd.Flags().Changed("help") || cmd.Flags().Changed("version") {
-		os.Exit(0)
+func loadConfig(cmd *cobra.Command) error {
+	cfgFile, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return err
 	}
+
+	fmt.Fprintln(os.Stderr, "DBG cfgFile:", cfgFile)
+
+	// SetConfigName resets an explicitly set config file, so it only
+	// runs when searching for the default .git-spruce.yaml
+	viper.SetConfigType("yaml")
+
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+
+		// search order: working directory, then home, so a repo-level
+		// .git-spruce.yaml overrides the global one when both exist
+		viper.AddConfigPath(home)
+		viper.AddConfigPath(".")
+		viper.SetConfigName(".git-spruce")
+	}
+
+	if err := viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(err, &notFound) {
+			return nil
+		}
+
+		return err
+	}
+
+	pterm.Info.Println("Using config file:", viper.ConfigFileUsed())
+
+	return nil
+}
+
+func execute(cmd *cobra.Command, _ []string) {
+	Must(loadConfig(cmd))
+
+	config := viper.GetViper()
 
 	// get the repo path from the flag
 	repoPath, _ := cmd.Flags().GetString("repo")
