@@ -33,14 +33,14 @@ func buildBenchRepo(
 	require.NoError(b, os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init\n"), 0o644))
 	_, err = w.Add("init.txt")
 	require.NoError(b, err)
-	baseHash, err := w.Commit("init", &git.CommitOptions{})
+	baseHash, err := w.Commit("init", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(b, err)
 
 	// one commit ahead of the base, used for the unmerged branches
 	require.NoError(b, os.WriteFile(filepath.Join(dir, "unmerged.txt"), []byte("unmerged\n"), 0o644))
 	_, err = w.Add("unmerged.txt")
 	require.NoError(b, err)
-	unmergedHash, err := w.Commit("unmerged work", &git.CommitOptions{})
+	unmergedHash, err := w.Commit("unmerged work", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(b, err)
 
 	// put master back at the base commit
@@ -51,7 +51,7 @@ func buildBenchRepo(
 	require.NoError(b, os.WriteFile(filepath.Join(dir, "squashed.txt"), []byte("squashed\n"), 0o644))
 	_, err = w.Add("squashed.txt")
 	require.NoError(b, err)
-	squashHash, err := w.Commit("squash: add squashed.txt (#1)", &git.CommitOptions{})
+	squashHash, err := w.Commit("squash: add squashed.txt (#1)", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(b, err)
 
 	// branch tip carries the same diff over the base commit
@@ -61,7 +61,7 @@ func buildBenchRepo(
 	require.NoError(b, os.WriteFile(filepath.Join(dir, "squashed.txt"), []byte("squashed\n"), 0644))
 	_, err = w.Add("squashed.txt")
 	require.NoError(b, err)
-	squashBranchHash, err := w.Commit("feat: add squashed.txt", &git.CommitOptions{})
+	squashBranchHash, err := w.Commit("feat: add squashed.txt", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(b, err)
 	require.NoError(b, w.Checkout(&git.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("master")}))
 	squashedMaster := plumbing.NewHashReference(plumbing.NewBranchReferenceName("master"), squashHash)

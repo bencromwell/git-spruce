@@ -11,9 +11,16 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testAuthor gives test commits a fixed identity so they do not depend
+// on the runner's git config, which CI does not set.
+func testAuthor() *object.Signature {
+	return &object.Signature{Name: "git-spruce test", Email: "test@git-spruce.invalid"}
+}
 
 func initRepository(tempDir string, isBare bool) (*git.Repository, error) {
 	if err := os.Mkdir(tempDir, 0o755); err != nil {
@@ -55,7 +62,7 @@ func createTestRepos(t *testing.T) TestRepos {
 	require.NoError(t, err)
 	_, err = cloneWorktree.Add("test.txt")
 	require.NoError(t, err)
-	_, err = cloneWorktree.Commit("Initial commit", &git.CommitOptions{})
+	_, err = cloneWorktree.Commit("Initial commit", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(t, err)
 
 	err = clone.Push(&git.PushOptions{})
@@ -75,6 +82,7 @@ func createTestRepos(t *testing.T) TestRepos {
 
 	_, err = cloneWorktree.Commit("chore: commit on tmp/test-two", &git.CommitOptions{
 		AllowEmptyCommits: true,
+		Author:            testAuthor(),
 	})
 	require.NoError(t, err)
 
@@ -148,6 +156,7 @@ func TestGitSpruce_LoadBranchesGoneRequiresUpstream(t *testing.T) {
 
 	pushedHash, err := w.Commit("work on tmp/pushed", &git.CommitOptions{
 		AllowEmptyCommits: true,
+		Author:            testAuthor(),
 	})
 	require.NoError(t, err)
 
@@ -252,7 +261,7 @@ func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
-	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{})
+	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(t, err)
 
 	err = w.Checkout(&git.CheckoutOptions{
@@ -263,7 +272,7 @@ func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
-	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{})
+	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(t, err)
 
 	gs, err := newGitSpruce(testRepos.cloneDir)
@@ -282,7 +291,7 @@ func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
-	_, err = w.Commit("feat: different change", &git.CommitOptions{})
+	_, err = w.Commit("feat: different change", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(t, err)
 
 	assert.False(t, gs.BranchIsSquashMerged("tmp/not-squashed"))
@@ -384,7 +393,7 @@ func TestGitSpruce_DeleteBranchWithoutForceDeletesSquashMergedWhenDetected(t *te
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
-	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{})
+	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(t, err)
 
 	err = w.Checkout(&git.CheckoutOptions{
@@ -395,7 +404,7 @@ func TestGitSpruce_DeleteBranchWithoutForceDeletesSquashMergedWhenDetected(t *te
 	require.NoError(t, err)
 	_, err = w.Add("squash.txt")
 	require.NoError(t, err)
-	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{})
+	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(t, err)
 
 	gs, err := newGitSpruce(testRepos.cloneDir)
