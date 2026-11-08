@@ -8,6 +8,7 @@ import (
 
 	"github.com/bencromwell/git-spruce/spruce"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/stretchr/testify/require"
 )
@@ -79,9 +80,25 @@ func buildBenchRepo(
 		}
 	}
 
+	// gone branches carry an upstream config whose remote-tracking ref
+	// no longer exists; without it they were never pushed and load as
+	// merely unpushed
+	cfg, err := repo.Config()
+	require.NoError(b, err)
+
 	for i := range gone {
-		addBranch(fmt.Sprintf("gone/%d", i), baseHash, false)
+		name := fmt.Sprintf("gone/%d", i)
+
+		addBranch(name, baseHash, false)
+
+		cfg.Branches[name] = &config.Branch{
+			Name:   name,
+			Remote: "origin",
+			Merge:  plumbing.NewBranchReferenceName(name),
+		}
 	}
+	require.NoError(b, repo.Storer.SetConfig(cfg))
+
 	for i := range merged {
 		addBranch(fmt.Sprintf("merged/%d", i), baseHash, true)
 	}

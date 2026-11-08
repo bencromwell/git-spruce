@@ -75,13 +75,27 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 
 	branchList := make([]GitBranch, 0, len(locals))
 
+	cfg, err := gs.Repo.Config()
+	if err != nil {
+		return nil, err
+	}
+
 	for _, branchName := range locals {
-		refName := plumbing.NewRemoteReferenceName(gs.Origin, branchName)
-		_, refExists := remoteRefs[refName.String()]
+		// git branch -vv flags a branch [gone] only when its configured
+		// upstream's remote-tracking ref no longer exists; a branch with
+		// no upstream was never pushed and must never be flagged, or
+		// --gone would delete unpushed work
+		upstream := cfg.Branches[branchName]
+		upstreamRef := ""
+		if upstream != nil && upstream.Remote != "" && upstream.Merge != "" {
+			upstreamRef = plumbing.NewRemoteReferenceName(upstream.Remote, upstream.Merge.Short()).String()
+		}
+
+		_, refExists := remoteRefs[upstreamRef]
 
 		branchList = append(branchList, GitBranch{
 			Name:   branchName,
-			IsGone: !refExists,
+			IsGone: upstreamRef != "" && !refExists,
 		})
 	}
 

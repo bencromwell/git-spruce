@@ -129,6 +129,98 @@ func TestGitSpruce_LoadBranches(t *testing.T) {
 	assert.Len(t, branches, 2)
 }
 
+func TestGitSpruce_LoadBranchesGoneRequiresUpstream(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	// a branch that was pushed carries an upstream and its
+	// remote-tracking ref, whatever its merge state
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/pushed"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	pushedHash, err := w.Commit("work on tmp/pushed", &git.CommitOptions{
+		AllowEmptyCommits: true,
+	})
+	require.NoError(t, err)
+
+	err = testRepos.clone.Push(&git.PushOptions{
+		RefSpecs: []config.RefSpec{
+			config.RefSpec("refs/heads/tmp/pushed:refs/heads/tmp/pushed"),
+		},
+	})
+	require.NoError(t, err)
+
+	// go-git does not necessarily write the tracking ref on push; the
+	// upstream config and a present tracking ref make the "not gone"
+	// state explicit
+	trackingRef := plumbing.NewHashReference(
+		plumbing.NewRemoteReferenceName("origin", "tmp/pushed"), pushedHash)
+	err = testRepos.clone.Storer.SetReference(trackingRef)
+	require.NoError(t, err)
+
+	cfg, err := testRepos.clone.Config()
+	require.NoError(t, err)
+	cfg.Branches["tmp/pushed"] = &config.Branch{
+		Name:   "tmp/pushed",
+		Remote: "origin",
+		Merge:  plumbing.NewBranchReferenceName("tmp/pushed"),
+	}
+	err = testRepos.clone.Storer.SetConfig(cfg)
+	require.NoError(t, err)
+
+	branches, err := gs.LoadBranches()
+	require.NoError(t, err)
+	for _, branch := range branches {
+		if branch.Name == "tmp/pushed" {
+			assert.False(t, branch.IsGone)
+		}
+	}
+
+	// deleting the remote-tracking ref (as git fetch --prune does when
+	// the branch is deleted upstream) flags the branch as gone
+	err = testRepos.clone.Storer.RemoveReference(trackingRef.Name())
+	require.NoError(t, err)
+
+	branches, err = gs.LoadBranches()
+	require.NoError(t, err)
+	for _, branch := range branches {
+		if branch.Name == "tmp/pushed" {
+			assert.True(t, branch.IsGone)
+		}
+	}
+
+	// a never-pushed branch has no upstream config and must never be
+	// flagged as gone, or --gone would delete unpushed work
+	for _, branch := range branches {
+		if branch.Name == "tmp/test-one" || branch.Name == "tmp/test-two" {
+			assert.False(t, branch.IsGone)
+		}
+	}
+
+	// removing the upstream config marks the branch not gone again
+	cfg, err = testRepos.clone.Config()
+	require.NoError(t, err)
+	delete(cfg.Branches, "tmp/pushed")
+	err = testRepos.clone.Storer.SetConfig(cfg)
+	require.NoError(t, err)
+
+	branches, err = gs.LoadBranches()
+	require.NoError(t, err)
+	for _, branch := range branches {
+		if branch.Name == "tmp/pushed" {
+			assert.False(t, branch.IsGone)
+		}
+	}
+}
+
 func TestGitSpruce_BranchIsMerged(t *testing.T) {
 	testRepos := createTestRepos(t)
 
@@ -352,7 +444,18 @@ func TestGitSpruce_LoadBranchesMarksGone(t *testing.T) {
 	gs, err := newGitSpruce(testRepos.cloneDir)
 	require.NoError(t, err)
 
-	// simulate the upstream branch being deleted: drop the remote-tracking ref
+	// simulate the branch deleted upstream with its upstream still
+	// configured: the remote-tracking ref goes, the config stays
+	cfg, err := gs.Repo.Config()
+	require.NoError(t, err)
+	cfg.Branches["tmp/test-two"] = &config.Branch{
+		Name:   "tmp/test-two",
+		Remote: "origin",
+		Merge:  plumbing.NewBranchReferenceName("tmp/test-two"),
+	}
+	err = gs.Repo.Storer.SetConfig(cfg)
+	require.NoError(t, err)
+
 	err = gs.Repo.Storer.RemoveReference(plumbing.NewRemoteReferenceName("origin", "tmp/test-two"))
 	require.NoError(t, err)
 
