@@ -26,3 +26,5 @@ cover.out
 coverage*
 dist/
 git-spruce-*.tgz
+
+.github/styles

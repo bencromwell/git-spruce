@@ -2,12 +2,15 @@ package cmd
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/bencromwell/git-spruce/spruce"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -17,70 +20,77 @@ import (
 var helpText string
 
 func NewRootCommand(version, commit string) *cobra.Command {
-	// rootCmd represents the base command when called without any subcommands
-	var rootCmd = &cobra.Command{
+	rootCmd := &cobra.Command{
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 		Use:     "git-spruce",
 		Short:   "Removes branches that have been merged to the configured merge base branch.",
 		Long:    "git-spruce " + version + "\n" + helpText,
-		// Uncomment the following line if your bare application
-		// has an action associated with it:
-		Run: execute,
+		Run:     execute,
 	}
-
-	var (
-		cfgFile string
-		err     error
-	)
-
-	home, err := os.UserHomeDir()
-	cobra.CheckErr(err)
-
-	// Search config in home directory with name ".git-spruce" (without extension).
-	viper.AddConfigPath(home)
-	viper.SetConfigType("yaml")
-	viper.SetConfigName(".git-spruce")
-	// look for config in the working directory
-	viper.AddConfigPath(".")
 
 	viper.SetDefault("merge_base", "main")
 	viper.SetDefault("origin", "origin")
 	viper.SetDefault("ignore_branches", []string{"develop", "main", "master"})
+	viper.SetDefault("squash_merged", false)
+	viper.SetDefault("gone", false)
 
-	// viper.AutomaticEnv() // read in environment variables that match
+	rootCmd.PersistentFlags().String("config", "", "config file (default is $HOME/.git-spruce.yaml)")
 
-	// If a config file is found, read it in.
-	if err = viper.ReadInConfig(); err == nil {
-		pterm.Info.Println("Using config file:", viper.ConfigFileUsed())
-	}
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.git-spruce.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
 	rootCmd.Flags().BoolP("prune", "p", false, "Runs prune when fetching.")
 	rootCmd.Flags().BoolP("force", "f", false, "Runs git branch -D on detected branches.")
 	rootCmd.Flags().BoolP("yes-all", "y", false, "No confirmation for each branch, removes all detected branches.")
+	rootCmd.Flags().BoolP("squash", "s", false, "Also removes branches that were squash-merged into the merge base.")
+	rootCmd.Flags().BoolP("gone", "g", false,
+		"Also removes branches flagged [gone] (their remote-tracking ref no longer exists).")
 
-	// optional flag for a path to the repo, default to "" or current working directory where you called the command from
 	rootCmd.Flags().String("repo", "", "Path of the git repository to spruce.")
 
 	return rootCmd
 }
 
-func execute(cmd *cobra.Command, _ []string) {
-	// get the config from Viper
-	config := viper.GetViper()
-
-	// if they passed --help or -h, exit
-	// Cobra will print the help text for us
-	if cmd.Flags().Changed("help") || cmd.Flags().Changed("version") {
-		os.Exit(0)
+func loadConfig(cmd *cobra.Command) error {
+	cfgFile, flagErr := cmd.Flags().GetString("config")
+	if flagErr != nil {
+		return flagErr
 	}
+
+	// SetConfigName resets an explicitly set config file, so it only
+	// runs when searching for the default .git-spruce.yaml
+	viper.SetConfigType("yaml")
+
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return homeErr
+		}
+
+		// search order: working directory, then home, so a repo-level
+		// .git-spruce.yaml overrides the global one when both exist
+		viper.AddConfigPath(home)
+		viper.AddConfigPath(".")
+		viper.SetConfigName(".git-spruce")
+	}
+
+	if readErr := viper.ReadInConfig(); readErr != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(readErr, &notFound) {
+			return nil
+		}
+
+		return readErr
+	}
+
+	pterm.Info.Println("Using config file:", viper.ConfigFileUsed())
+
+	return nil
+}
+
+func execute(cmd *cobra.Command, _ []string) {
+	Must(loadConfig(cmd))
+
+	config := viper.GetViper()
 
 	// get the repo path from the flag
 	repoPath, _ := cmd.Flags().GetString("repo")
@@ -88,76 +98,130 @@ func execute(cmd *cobra.Command, _ []string) {
 	repo, err := git.PlainOpen(repoPath)
 	Must(err)
 
+	forceFlag, _ := cmd.Flags().GetBool("force")
+
 	gitSpruce := &spruce.GitSpruce{
 		MergeBase:        config.GetString("merge_base"),
 		BranchesToIgnore: config.GetStringSlice("ignore_branches"),
 		Origin:           config.GetString("origin"),
-		Force:            cmd.Flags().Changed("force"),
+		Force:            forceFlag,
 		Repo:             repo,
 		RepoPath:         repoPath,
 	}
 
+	squashFlag, _ := cmd.Flags().GetBool("squash")
+	gitSpruce.DetectSquash = squashFlag || config.GetBool("squash_merged")
+
+	goneFlag, _ := cmd.Flags().GetBool("gone")
+	detectGone := goneFlag || config.GetBool("gone")
+
 	// if the user flagged yes to all, we don't need to confirm each branch's deletion
-	requireConfirmation := !cmd.Flags().Changed("yes-all")
+	yesAllFlag, _ := cmd.Flags().GetBool("yes-all")
+	requireConfirmation := !yesAllFlag
+
+	detectSquash := gitSpruce.DetectSquash
 
 	totalMerged := 0
+	totalSquashMerged := 0
+	totalGone := 0
 	totalNotMerged := 0
 	totalRemoved := 0
 
-	// @todo fix auth when fetching
-	// gitSpruce.Fetch(rootCmd.Flags().Changed("prune"))
+	// refresh remote refs before checking branches; private remotes can
+	// still fail on auth, in which case the checks run on local state
+	pruneFlag, _ := cmd.Flags().GetBool("prune")
+	if _, remoteErr := repo.Remote(gitSpruce.Origin); remoteErr == nil {
+		fetchErr := gitSpruce.Fetch(pruneFlag)
+		upToDate := errors.Is(fetchErr, git.NoErrAlreadyUpToDate) || errors.Is(fetchErr, transport.ErrEmptyRemoteRepository)
+		if fetchErr != nil && !upToDate {
+			pterm.Warning.Println("Could not fetch from", gitSpruce.Origin+":", fetchErr)
+		}
+	}
 
 	branches, err := gitSpruce.LoadBranches()
 	Must(err)
 
 	for _, branch := range branches {
-		// @todo add an option to delete gone branches
-		// if branch.IsGone {
-		// fmt.Println("Branch", branch.Name, "is gone.")
-		// continue
-		// }
-		if gitSpruce.BranchIsMerged(branch.Name) {
+		mergeType := "merged"
+
+		switch {
+		case detectGone && branch.IsGone:
+			mergeType = "gone"
+			totalGone++
+		case gitSpruce.BranchIsMerged(branch.Name):
 			totalMerged++
-
-			// if they didn't select yes-all ask them to confirm deleting this branch
-			canDeleteBranch, canDeleteBranchError := canDeleteBranch(requireConfirmation, branch.Name)
-
-			if canDeleteBranchError != nil {
-				pterm.Error.Println(canDeleteBranchError)
-				continue
-			}
-
-			if !canDeleteBranch {
-				pterm.Warning.Println("Branch not removed:", branch.Name)
-				continue
-			}
-
-			deleted, deleteBranchError := gitSpruce.DeleteBranch(branch.Name)
-			if !deleted {
-				pterm.Error.Printf("Error deleting branch [%s]: %s\n", branch.Name, deleteBranchError)
-				continue
-			}
-
-			pterm.Success.Println("Branch deleted:", branch.Name)
-			totalRemoved++
-		} else {
-			pterm.Info.Println("Branch is not merged:", branch.Name)
+		case detectSquash && gitSpruce.BranchIsSquashMerged(branch.Name):
+			mergeType = "squash-merged"
+			totalSquashMerged++
+		default:
 			totalNotMerged++
+			pterm.Info.Println("Branch is not merged:", branch.Name)
+
+			continue
+		}
+
+		if removeBranch(gitSpruce, requireConfirmation, branch.Name, mergeType) {
+			totalRemoved++
 		}
 	}
 
 	tableData := pterm.TableData{
-		{"Merged", "Not merged", "Removed"},
-		{strconv.Itoa(totalMerged), strconv.Itoa(totalNotMerged), strconv.Itoa(totalRemoved)},
+		{"Merged", "Squash merged", "Gone", "Not merged", "Removed"},
+		{
+			strconv.Itoa(totalMerged), strconv.Itoa(totalSquashMerged), strconv.Itoa(totalGone),
+			strconv.Itoa(totalNotMerged), strconv.Itoa(totalRemoved),
+		},
 	}
 
 	Must(pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(tableData).Render())
 }
 
-func canDeleteBranch(requireConfirmation bool, branchName string) (bool, error) {
-	if requireConfirmation {
-		confirm, err := userConfirmsDeletingBranch(branchName)
+func deletedBranchMessage(branchName string, tip plumbing.Hash, tipKnown bool) string {
+	if !tipKnown {
+		return "Branch deleted: " + branchName
+	}
 
+	return fmt.Sprintf("Branch deleted: %s (was %s)", branchName, tip)
+}
+
+// removeBranch confirms with the user, deletes the branch and reports
+// the outcome, returning whether the branch was removed.
+func removeBranch(gitSpruce *spruce.GitSpruce, requireConfirmation bool, branchName, mergeType string) bool {
+	canDelete, canDeleteError := canDeleteBranch(requireConfirmation, branchName, mergeType)
+	if canDeleteError != nil {
+		pterm.Error.Println(canDeleteError)
+
+		return false
+	}
+
+	if !canDelete {
+		return false
+	}
+
+	// resolve the tip before the delete removes the ref, so the hash
+	// can be reported and the branch recovered from the reflog
+	tip, tipKnown := gitSpruce.BranchTipHash(branchName)
+
+	// gone branches skip the merged check: their upstream is already deleted
+	remove := gitSpruce.DeleteBranch
+	if mergeType == "gone" {
+		remove = gitSpruce.DeleteGoneBranch
+	}
+
+	if _, deleteErr := remove(branchName); deleteErr != nil {
+		pterm.Error.Printf("Error deleting branch [%s]: %s\n", branchName, deleteErr)
+
+		return false
+	}
+
+	pterm.Success.Println(deletedBranchMessage(branchName, tip, tipKnown))
+
+	return true
+}
+
+func canDeleteBranch(requireConfirmation bool, branchName, mergeType string) (bool, error) {
+	if requireConfirmation {
+		confirm, err := userConfirmsDeletingBranch(branchName, mergeType)
 		if err != nil {
 			return false, fmt.Errorf("error confirming branch deletion: %w", err)
 		}
@@ -171,9 +235,9 @@ func canDeleteBranch(requireConfirmation bool, branchName string) (bool, error) 
 	return true, nil
 }
 
-func userConfirmsDeletingBranch(branchName string) (bool, error) {
+func userConfirmsDeletingBranch(branchName, mergeType string) (bool, error) {
 	var confirm string
-	pterm.Print(pterm.Yellow("Branch " + branchName + " is merged. Remove it? (y/n): "))
+	pterm.Print(pterm.Yellow("Branch " + branchName + " is " + mergeType + ". Remove it? (y/n): "))
 
 	_, err := fmt.Scanln(&confirm)
 	if err != nil {

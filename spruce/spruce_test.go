@@ -2,6 +2,7 @@ package spruce_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,14 +11,20 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// testAuthor gives test commits a fixed identity so they do not depend
+// on the runner's git config, which CI does not set.
+func testAuthor() *object.Signature {
+	return &object.Signature{Name: "git-spruce test", Email: "test@git-spruce.invalid"}
+}
+
 func initRepository(tempDir string, isBare bool) (*git.Repository, error) {
-	err := os.Mkdir(tempDir, 0755)
-	if err != nil {
-		return nil, errors.New("Failed to create temp dir")
+	if err := os.Mkdir(tempDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
 	return git.PlainInit(tempDir, isBare)
@@ -39,9 +46,6 @@ func createTestRepos(t *testing.T) TestRepos {
 	origin, err := initRepository(originDir, true)
 	require.NoError(t, err)
 
-	assert.IsType(t, &git.Repository{}, clone)
-	assert.IsType(t, &git.Repository{}, origin)
-
 	// set the clone's remote origin to the origin repo
 	_, err = clone.CreateRemote(&config.RemoteConfig{
 		Name: "origin",
@@ -51,14 +55,14 @@ func createTestRepos(t *testing.T) TestRepos {
 
 	// Create a test file
 	testFile := filepath.Join(cloneDir, "test.txt")
-	err = os.WriteFile(testFile, []byte("test"), 0644)
+	err = os.WriteFile(testFile, []byte("test"), 0o644)
 	require.NoError(t, err)
 
 	cloneWorktree, err := clone.Worktree()
 	require.NoError(t, err)
 	_, err = cloneWorktree.Add("test.txt")
 	require.NoError(t, err)
-	_, err = cloneWorktree.Commit("Initial commit", &git.CommitOptions{})
+	_, err = cloneWorktree.Commit("Initial commit", &git.CommitOptions{Author: testAuthor()})
 	require.NoError(t, err)
 
 	err = clone.Push(&git.PushOptions{})
@@ -78,6 +82,7 @@ func createTestRepos(t *testing.T) TestRepos {
 
 	_, err = cloneWorktree.Commit("chore: commit on tmp/test-two", &git.CommitOptions{
 		AllowEmptyCommits: true,
+		Author:            testAuthor(),
 	})
 	require.NoError(t, err)
 
@@ -88,24 +93,6 @@ func createTestRepos(t *testing.T) TestRepos {
 
 	err = clone.Push(&git.PushOptions{})
 	require.NoError(t, err)
-
-	// originBranches, _ := origin.Branches()
-	// err = originBranches.ForEach(func(ref *plumbing.Reference) error {
-	// 	t.Logf("Branch: %s", ref.Name().Short())
-	// 	return nil
-	// })
-	// require.NoError(t, err)
-
-	// // Add and commit the test file
-	// cmd = exec.Command("git", "add", "test.txt")
-	// cmd.Dir = tempDir
-	// err = cmd.Run()
-	// require.NoError(t, err)
-
-	// cmd = exec.Command("git", "commit", "-m", "Initial commit")
-	// cmd.Dir = tempDir
-	// err = cmd.Run()
-	// require.NoError(t, err)
 
 	return TestRepos{clone, origin, cloneDir, originDir}
 }
@@ -150,6 +137,99 @@ func TestGitSpruce_LoadBranches(t *testing.T) {
 	assert.Len(t, branches, 2)
 }
 
+func TestGitSpruce_LoadBranchesGoneRequiresUpstream(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	// a branch that was pushed carries an upstream and its
+	// remote-tracking ref, whatever its merge state
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/pushed"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	pushedHash, err := w.Commit("work on tmp/pushed", &git.CommitOptions{
+		AllowEmptyCommits: true,
+		Author:            testAuthor(),
+	})
+	require.NoError(t, err)
+
+	err = testRepos.clone.Push(&git.PushOptions{
+		RefSpecs: []config.RefSpec{
+			config.RefSpec("refs/heads/tmp/pushed:refs/heads/tmp/pushed"),
+		},
+	})
+	require.NoError(t, err)
+
+	// go-git does not necessarily write the tracking ref on push; the
+	// upstream config and a present tracking ref make the "not gone"
+	// state explicit
+	trackingRef := plumbing.NewHashReference(
+		plumbing.NewRemoteReferenceName("origin", "tmp/pushed"), pushedHash)
+	err = testRepos.clone.Storer.SetReference(trackingRef)
+	require.NoError(t, err)
+
+	cfg, err := testRepos.clone.Config()
+	require.NoError(t, err)
+	cfg.Branches["tmp/pushed"] = &config.Branch{
+		Name:   "tmp/pushed",
+		Remote: "origin",
+		Merge:  plumbing.NewBranchReferenceName("tmp/pushed"),
+	}
+	err = testRepos.clone.Storer.SetConfig(cfg)
+	require.NoError(t, err)
+
+	branches, err := gs.LoadBranches()
+	require.NoError(t, err)
+	for _, branch := range branches {
+		if branch.Name == "tmp/pushed" {
+			assert.False(t, branch.IsGone)
+		}
+	}
+
+	// deleting the remote-tracking ref (as git fetch --prune does when
+	// the branch is deleted upstream) flags the branch as gone
+	err = testRepos.clone.Storer.RemoveReference(trackingRef.Name())
+	require.NoError(t, err)
+
+	branches, err = gs.LoadBranches()
+	require.NoError(t, err)
+	for _, branch := range branches {
+		if branch.Name == "tmp/pushed" {
+			assert.True(t, branch.IsGone)
+		}
+	}
+
+	// a never-pushed branch has no upstream config and must never be
+	// flagged as gone, or --gone would delete unpushed work
+	for _, branch := range branches {
+		if branch.Name == "tmp/test-one" || branch.Name == "tmp/test-two" {
+			assert.False(t, branch.IsGone)
+		}
+	}
+
+	// removing the upstream config marks the branch not gone again
+	cfg, err = testRepos.clone.Config()
+	require.NoError(t, err)
+	delete(cfg.Branches, "tmp/pushed")
+	err = testRepos.clone.Storer.SetConfig(cfg)
+	require.NoError(t, err)
+
+	branches, err = gs.LoadBranches()
+	require.NoError(t, err)
+	for _, branch := range branches {
+		if branch.Name == "tmp/pushed" {
+			assert.False(t, branch.IsGone)
+		}
+	}
+}
+
 func TestGitSpruce_BranchIsMerged(t *testing.T) {
 	testRepos := createTestRepos(t)
 
@@ -161,6 +241,60 @@ func TestGitSpruce_BranchIsMerged(t *testing.T) {
 
 	isMerged = gs.BranchIsMerged("tmp/test-two")
 	assert.False(t, isMerged)
+}
+
+func TestGitSpruce_BranchIsSquashMerged(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	// branch with a real change, not merged in the ancestor sense
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/squash-test"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	squashFile := filepath.Join(testRepos.cloneDir, "squash.txt")
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{Author: testAuthor()})
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("master"),
+	})
+	require.NoError(t, err)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{Author: testAuthor()})
+	require.NoError(t, err)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	assert.False(t, gs.BranchIsMerged("tmp/squash-test"))
+	assert.True(t, gs.BranchIsSquashMerged("tmp/squash-test"))
+
+	// a branch with a different change is not squash-merged
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/not-squashed"),
+		Create: true,
+	})
+	require.NoError(t, err)
+	err = os.WriteFile(squashFile, []byte("different change\n"), 0o644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("feat: different change", &git.CommitOptions{Author: testAuthor()})
+	require.NoError(t, err)
+
+	assert.False(t, gs.BranchIsSquashMerged("tmp/not-squashed"))
 }
 
 func TestGitSpruce_DeleteBranch(t *testing.T) {
@@ -211,4 +345,169 @@ func TestGitSpruce_DeleteBranchWithForceFailsIfBranchCheckedOut(t *testing.T) {
 	deleted, err := gs.DeleteBranch("tmp/test-two")
 	require.Error(t, err)
 	assert.False(t, deleted)
+}
+
+func TestGitSpruce_DeleteBranchWithoutForceRefusesUnmerged(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	deleted, err := gs.DeleteBranch("tmp/test-two")
+	require.Error(t, err)
+	assert.False(t, deleted)
+	require.ErrorContains(t, err, "is not merged")
+
+	// the branch must still exist
+	_, err = testRepos.clone.Reference(plumbing.NewBranchReferenceName("tmp/test-two"), false)
+	require.NoError(t, err)
+}
+
+func TestGitSpruce_DeleteBranchWithoutForceDeletesMerged(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	deleted, err := gs.DeleteBranch("tmp/test-one")
+	require.NoError(t, err)
+	assert.True(t, deleted)
+}
+
+func TestGitSpruce_DeleteBranchWithoutForceDeletesSquashMergedWhenDetected(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/squash-test"),
+		Create: true,
+	})
+	require.NoError(t, err)
+
+	squashFile := filepath.Join(testRepos.cloneDir, "squash.txt")
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("feat: add squash.txt", &git.CommitOptions{Author: testAuthor()})
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("master"),
+	})
+	require.NoError(t, err)
+	err = os.WriteFile(squashFile, []byte("squashed change\n"), 0o644)
+	require.NoError(t, err)
+	_, err = w.Add("squash.txt")
+	require.NoError(t, err)
+	_, err = w.Commit("squash: add squash.txt (#1)", &git.CommitOptions{Author: testAuthor()})
+	require.NoError(t, err)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+	gs.DetectSquash = true
+
+	deleted, err := gs.DeleteBranch("tmp/squash-test")
+	require.NoError(t, err)
+	assert.True(t, deleted)
+}
+
+func TestGitSpruce_BranchTipHash(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	tip, ok := gs.BranchTipHash("tmp/test-one")
+	require.True(t, ok)
+
+	ref, err := testRepos.clone.Reference(plumbing.NewBranchReferenceName("tmp/test-one"), false)
+	require.NoError(t, err)
+	assert.Equal(t, ref.Hash(), tip)
+
+	_, ok = gs.BranchTipHash("tmp/no-such-branch")
+	assert.False(t, ok)
+}
+
+func TestGitSpruce_DeleteBranchNotFound(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	deleted, err := gs.DeleteBranch("tmp/no-such-branch")
+	require.Error(t, err)
+	assert.False(t, deleted)
+	require.ErrorContains(t, err, "not found")
+}
+
+func TestGitSpruce_LoadBranchesMarksGone(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	// simulate the branch deleted upstream with its upstream still
+	// configured: the remote-tracking ref goes, the config stays
+	cfg, err := gs.Repo.Config()
+	require.NoError(t, err)
+	cfg.Branches["tmp/test-two"] = &config.Branch{
+		Name:   "tmp/test-two",
+		Remote: "origin",
+		Merge:  plumbing.NewBranchReferenceName("tmp/test-two"),
+	}
+	err = gs.Repo.Storer.SetConfig(cfg)
+	require.NoError(t, err)
+
+	err = gs.Repo.Storer.RemoveReference(plumbing.NewRemoteReferenceName("origin", "tmp/test-two"))
+	require.NoError(t, err)
+
+	branches, err := gs.LoadBranches()
+	require.NoError(t, err)
+	assert.Contains(t, branches, spruce.GitBranch{Name: "tmp/test-one", IsGone: false})
+	assert.Contains(t, branches, spruce.GitBranch{Name: "tmp/test-two", IsGone: true})
+}
+
+func TestGitSpruce_DeleteGoneBranchDeletesUnmergedWithoutForce(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	// tmp/test-two has a commit not merged into master, but a gone
+	// branch is deleted without the merged check
+	deleted, err := gs.DeleteGoneBranch("tmp/test-two")
+	require.NoError(t, err)
+	assert.True(t, deleted)
+
+	_, err = testRepos.clone.Reference(plumbing.NewBranchReferenceName("tmp/test-two"), false)
+	assert.Error(t, err)
+}
+
+func TestGitSpruce_DeleteGoneBranchFailsIfBranchCheckedOut(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/test-two"),
+	})
+	require.NoError(t, err)
+
+	deleted, err := gs.DeleteGoneBranch("tmp/test-two")
+	require.Error(t, err)
+	assert.False(t, deleted)
+	require.ErrorContains(t, err, "current branch")
 }

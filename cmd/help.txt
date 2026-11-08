@@ -7,6 +7,8 @@ In global '$HOME/.git-spruce.yaml' or local to your project '.git-spruce.yaml' y
 ignore_branches: An array of branches to never remove. Defaults to develop, main and master.
 merge_base: The merge base we're checking again to check what's merged. In a usual git-flow workflow this will be develop. The default here is 'main'.
 origin: The remote to check against. Defaults to 'origin'.
+squash_merged: Also remove branches whose changes were squash-merged into the merge base (detected by matching the branch diff against commits on the base). Defaults to false. Can also be enabled with --squash / -s.
+gone: Also remove branches flagged [gone] in 'git branch -vv', whose remote-tracking ref no longer exists. Gone branches are removed without the merged check, since the upstream has already discarded them. Defaults to false. Can also be enabled with --gone / -g.
 
 For the merge_base, 'main' and 'master' branches are treated as synonyms to handle the scenario where both conventions are in use.
 

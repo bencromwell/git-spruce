@@ -1,0 +1,47 @@
+name: Docs
+
+on: [pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  vale:
+    name: Vale Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+      # hosted runner images no longer ship vale, so install it
+      - name: Install Vale
+        run: |
+          go install github.com/vale-cli/vale/v3/cmd/vale@v3.26.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # the styles are not committed (downloaded, per the Packages key in
+      # .vale.ini), but vale requires the StylesPath directory to exist
+      # before it can install them
+      - name: Install Vale styles
+        run: |
+          mkdir -p .github/styles
+          vale sync
+      - uses: errata-ai/vale-action@518a9136acc6e6668ce7c00d367051e0941e87ff # v3.0.0
+        with:
+          # https://github.com/errata-ai/vale-action/issues/123
+          files: "README.md"
+          separator: ","
+          reporter: github-pr-annotations
+          fail_on_error: true
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  markdown:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+        with:
+          globs: "README.md"
+          separator: ","

@@ -43,8 +43,9 @@ $(TOOLDIR)/$(1): Makefile
 endef
 
 $(eval $(call tool,godoc,golang.org/x/tools/cmd/godoc@latest))
+$(eval $(call tool,goimports,golang.org/x/tools/cmd/goimports@latest))
 $(eval $(call tool,gofumpt,mvdan.cc/gofumpt@latest))
-$(eval $(call tool,golangci-lint,github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59))
+$(eval $(call tool,golangci-lint,github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8))
 $(eval $(call tool,gomod,github.com/Helcaraxan/gomod@latest))
 $(eval $(call tool,mockgen,github.com/golang/mock/mockgen@v1.6.0))
 
@@ -196,5 +197,5 @@ check-tidy:
 # Serve docs
 .PHONY: docs
 docs: $(TOOLDIR)/godoc
-	$(info serviing docs on http://127.0.0.1:6060/pkg/$(GOMODNAME)/)
+	$(info serving docs on http://127.0.0.1:6060/pkg/$(GOMODNAME)/)
 	@godoc -http=127.0.0.1:6060

@@ -201,11 +201,7 @@ linters-settings:
     # Default: ""
     context: "scope"
 
-  tenv:
-    # The option `all` will run against whole test files (`_test.go`) regardless of method/function signatures.
-    # Otherwise, only methods that take `*testing.T`, `*testing.B`, and `testing.TB` as arguments are checked.
-    # Default: false
-    all: true
+  # tenv was replaced by usetesting in golangci-lint v1.64
 
 
 linters:
@@ -232,7 +228,8 @@ linters:
     - errname # checks that sentinel errors are prefixed with the Err and error types are suffixed with the Error
     - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13
     - exhaustive # checks exhaustiveness of enum switch statements
-    - exportloopref # checks for pointers to enclosing loop variables
+    # exportloopref was dropped: with Go 1.22 loopvar semantics it no longer
+    # reports, copyloopvar above covers the remaining cases
     - fatcontext # detects nested contexts in loops
     - forbidigo # forbids identifiers
     - funlen # tool for detection of long functions
@@ -276,7 +273,7 @@ linters:
     - spancheck # checks for mistakes with OpenTelemetry/Census spans
     - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
     - stylecheck # is a replacement for golint
-    - tenv # detects using os.Setenv instead of t.Setenv since Go1.17
+    - usetesting # detects os.Setenv, os.MkdirTemp and friends where the testing package's t.* methods fit
     - testableexamples # checks if examples are testable (have an expected output)
     - testifylint # checks usage of github.com/stretchr/testify
     - testpackage # makes you use a separate _test package

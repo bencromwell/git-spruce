@@ -22,7 +22,7 @@ func main() {
 
 	err := rootCmd.Execute()
 	if err != nil {
-		slog.Error("%v\n", "error", err)
+		slog.Error("git-spruce failed", "error", err)
 		os.Exit(1)
 	}
 }
