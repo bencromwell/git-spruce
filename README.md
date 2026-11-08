@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/bencromwell/git-spruce/actions/workflows/ci.yml/badge.svg)](https://github.com/bencromwell/git-spruce/actions/workflows/ci.yml)
 
-Removes local git branches that have been merged into a configured merge base branch. A Go port of [git-spruce-php](https://github.com/bencromwell/git-spruce-php). Spruce is a tree, and the tool trims branches: the name is a play on words.
+CLI for sprucing up your local working copy of a repo, cleans out branches that have been merged upstream.
+Spruce is a tree, this tool cleans your branches. It is a [pune](https://wiki.lspace.org/Pune) or play on words.
 
 ## Usage
 
