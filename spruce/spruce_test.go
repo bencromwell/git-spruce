@@ -345,3 +345,57 @@ func TestGitSpruce_DeleteBranchNotFound(t *testing.T) {
 	assert.False(t, deleted)
 	require.ErrorContains(t, err, "not found")
 }
+
+func TestGitSpruce_LoadBranchesMarksGone(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+
+	// simulate the upstream branch being deleted: drop the remote-tracking ref
+	err = gs.Repo.Storer.RemoveReference(plumbing.NewRemoteReferenceName("origin", "tmp/test-two"))
+	require.NoError(t, err)
+
+	branches, err := gs.LoadBranches()
+	require.NoError(t, err)
+	assert.Contains(t, branches, spruce.GitBranch{Name: "tmp/test-one", IsGone: false})
+	assert.Contains(t, branches, spruce.GitBranch{Name: "tmp/test-two", IsGone: true})
+}
+
+func TestGitSpruce_DeleteGoneBranchDeletesUnmergedWithoutForce(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	// tmp/test-two has a commit not merged into master, but a gone
+	// branch is deleted without the merged check
+	deleted, err := gs.DeleteGoneBranch("tmp/test-two")
+	require.NoError(t, err)
+	assert.True(t, deleted)
+
+	_, err = testRepos.clone.Reference(plumbing.NewBranchReferenceName("tmp/test-two"), false)
+	assert.Error(t, err)
+}
+
+func TestGitSpruce_DeleteGoneBranchFailsIfBranchCheckedOut(t *testing.T) {
+	testRepos := createTestRepos(t)
+
+	gs, err := newGitSpruce(testRepos.cloneDir)
+	require.NoError(t, err)
+	gs.Force = false
+
+	w, err := testRepos.clone.Worktree()
+	require.NoError(t, err)
+
+	err = w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("tmp/test-two"),
+	})
+	require.NoError(t, err)
+
+	deleted, err := gs.DeleteGoneBranch("tmp/test-two")
+	require.Error(t, err)
+	assert.False(t, deleted)
+	require.ErrorContains(t, err, "current branch")
+}

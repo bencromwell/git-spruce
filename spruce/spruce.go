@@ -358,6 +358,17 @@ func (gs *GitSpruce) headName() plumbing.ReferenceName {
 }
 
 func (gs *GitSpruce) DeleteBranch(branchName string) (bool, error) {
+	return gs.deleteBranch(branchName, false)
+}
+
+// DeleteGoneBranch removes a branch flagged [gone]: its remote-tracking
+// ref no longer exists, so the upstream has already discarded it and the
+// merged check does not apply.
+func (gs *GitSpruce) DeleteGoneBranch(branchName string) (bool, error) {
+	return gs.deleteBranch(branchName, true)
+}
+
+func (gs *GitSpruce) deleteBranch(branchName string, gone bool) (bool, error) {
 	ref := plumbing.NewBranchReferenceName(branchName)
 
 	// as with git branch -d, refuse to delete the checked-out branch
@@ -366,7 +377,7 @@ func (gs *GitSpruce) DeleteBranch(branchName string) (bool, error) {
 	}
 
 	// without Force, behave like git branch -d and refuse unmerged branches
-	if !gs.Force {
+	if !gs.Force && !gone {
 		branchCommit, ok := gs.branchCommit(branchName)
 		if !ok {
 			return false, fmt.Errorf("branch %s not found", branchName)

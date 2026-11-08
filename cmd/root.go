@@ -32,6 +32,7 @@ func NewRootCommand(version, commit string) *cobra.Command {
 	viper.SetDefault("origin", "origin")
 	viper.SetDefault("ignore_branches", []string{"develop", "main", "master"})
 	viper.SetDefault("squash_merged", false)
+	viper.SetDefault("gone", false)
 
 	rootCmd.PersistentFlags().String("config", "", "config file (default is $HOME/.git-spruce.yaml)")
 
@@ -39,6 +40,8 @@ func NewRootCommand(version, commit string) *cobra.Command {
 	rootCmd.Flags().BoolP("force", "f", false, "Runs git branch -D on detected branches.")
 	rootCmd.Flags().BoolP("yes-all", "y", false, "No confirmation for each branch, removes all detected branches.")
 	rootCmd.Flags().BoolP("squash", "s", false, "Also removes branches that were squash-merged into the merge base.")
+	rootCmd.Flags().BoolP("gone", "g", false,
+		"Also removes branches flagged [gone] (their remote-tracking ref no longer exists).")
 
 	rootCmd.Flags().String("repo", "", "Path of the git repository to spruce.")
 
@@ -109,6 +112,9 @@ func execute(cmd *cobra.Command, _ []string) {
 	squashFlag, _ := cmd.Flags().GetBool("squash")
 	gitSpruce.DetectSquash = squashFlag || config.GetBool("squash_merged")
 
+	goneFlag, _ := cmd.Flags().GetBool("gone")
+	detectGone := goneFlag || config.GetBool("gone")
+
 	// if the user flagged yes to all, we don't need to confirm each branch's deletion
 	yesAllFlag, _ := cmd.Flags().GetBool("yes-all")
 	requireConfirmation := !yesAllFlag
@@ -117,6 +123,7 @@ func execute(cmd *cobra.Command, _ []string) {
 
 	totalMerged := 0
 	totalSquashMerged := 0
+	totalGone := 0
 	totalNotMerged := 0
 	totalRemoved := 0
 
@@ -134,11 +141,13 @@ func execute(cmd *cobra.Command, _ []string) {
 	branches, err := gitSpruce.LoadBranches()
 	Must(err)
 
-	// TODO: add an option to delete gone branches (IsGone)
 	for _, branch := range branches {
 		mergeType := "merged"
 
 		switch {
+		case detectGone && branch.IsGone:
+			mergeType = "gone"
+			totalGone++
 		case gitSpruce.BranchIsMerged(branch.Name):
 			totalMerged++
 		case detectSquash && gitSpruce.BranchIsSquashMerged(branch.Name):
@@ -157,9 +166,9 @@ func execute(cmd *cobra.Command, _ []string) {
 	}
 
 	tableData := pterm.TableData{
-		{"Merged", "Squash merged", "Not merged", "Removed"},
+		{"Merged", "Squash merged", "Gone", "Not merged", "Removed"},
 		{
-			strconv.Itoa(totalMerged), strconv.Itoa(totalSquashMerged),
+			strconv.Itoa(totalMerged), strconv.Itoa(totalSquashMerged), strconv.Itoa(totalGone),
 			strconv.Itoa(totalNotMerged), strconv.Itoa(totalRemoved),
 		},
 	}
@@ -193,7 +202,13 @@ func removeBranch(gitSpruce *spruce.GitSpruce, requireConfirmation bool, branchN
 	// can be reported and the branch recovered from the reflog
 	tip, tipKnown := gitSpruce.BranchTipHash(branchName)
 
-	if _, deleteErr := gitSpruce.DeleteBranch(branchName); deleteErr != nil {
+	// gone branches skip the merged check: their upstream is already deleted
+	remove := gitSpruce.DeleteBranch
+	if mergeType == "gone" {
+		remove = gitSpruce.DeleteGoneBranch
+	}
+
+	if _, deleteErr := remove(branchName); deleteErr != nil {
 		pterm.Error.Printf("Error deleting branch [%s]: %s\n", branchName, deleteErr)
 
 		return false
