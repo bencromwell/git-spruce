@@ -5,10 +5,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
 type GitBranch struct {
@@ -38,7 +41,29 @@ func (gs *GitSpruce) Fetch(prune bool) error {
 	return gs.Repo.Fetch(&git.FetchOptions{
 		RemoteName: gs.Origin,
 		Prune:      prune,
+		Auth:       gs.fetchAuth(),
 	})
+}
+
+// go-git does not pick up the system SSH agent on its own, so SSH remotes
+// need explicit agent auth or the fetch is rejected as unauthenticated.
+func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
+	remote, err := gs.Repo.Remote(gs.Origin)
+	if err != nil {
+		return nil
+	}
+
+	url := remote.Config().URLs[0]
+	if !strings.HasPrefix(url, "git@") && !strings.HasPrefix(url, "ssh://") {
+		return nil
+	}
+
+	auth, err := gitssh.NewSSHAgentAuth("git")
+	if err != nil {
+		return nil
+	}
+
+	return auth
 }
 
 func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
