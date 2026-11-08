@@ -17,7 +17,7 @@ jobs:
       # hosted runner images no longer ship vale, so install it
       - name: Install Vale
         run: |
-          go install github.com/errata-ai/vale/v3/cmd/vale@v3.26.0
+          go install github.com/vale-cli/vale/v3/cmd/vale@v3.26.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       # the styles are not committed (downloaded, per the Packages key in
       # .vale.ini), but vale requires the StylesPath directory to exist
