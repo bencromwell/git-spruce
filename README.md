@@ -8,69 +8,92 @@ Spruce is a tree, this tool cleans your branches. It is a [pune](https://wiki.ls
 ## Usage
 
 ```shell
-git-spruce [flags]
+git-spruce 0.0.0-dev
+Removes branches that have been merged to the configured merge base branch.
+
+By default the merge base branch is 'main' or 'master' (both are supported).
+
+In global '$HOME/.git-spruce.yaml' or local to your project '.git-spruce.yaml' you can configure the following:
+
+ignore_branches: An array of branches to never remove. Defaults to develop, main and master.
+merge_base: The merge base we're checking against to see what's merged. In a usual git-flow workflow this will be develop. The default here is 'main'.
+origin: The remote to check against. Defaults to 'origin'.
+squash_merged: Also remove branches whose changes were squash-merged into the merge base. Defaults to false. Can also be enabled with --squash / -s.
+
+For the merge_base, 'main' and 'master' branches are treated as synonyms to handle the scenario where both conventions are in use.
+
+You can override the global config on a per repository basis by adding a .git-spruce.yaml configuration file to each repo.
+
+The deletion action is destructive, so it's interactive, prompting for confirmation for every deletion.
+
+If you mess up you can probably recover a deleted branch from git reflog.
+
+Usage:
+  git-spruce [flags]
+
+Flags:
+      --config string   config file (default is $HOME/.git-spruce.yaml)
+  -f, --force           Runs git branch -D on detected branches.
+  -h, --help            help for git-spruce
+  -p, --prune           Runs prune when fetching.
+      --repo string     Path of the git repository to spruce.
+  -s, --squash          Also removes branches that were squash-merged into the merge base.
+  -v, --version         version for git-spruce
+  -y, --yes-all         No confirmation for each branch, removes all detected branches.
 ```
 
-| Flag | Short | Effect |
-| --- | --- | --- |
-| `--repo` | | Path of the git repository to spruce. Defaults to the working directory. |
-| `--prune` | `-p` | Prune stale remote `refs` while fetching. |
-| `--squash` | `-s` | Also remove branches whose changes were squash-merged into the merge base. |
-| `--yes-all` | `-y` | Skip the per-branch confirmation prompt. |
-| `--force` | `-f` | Delete branches even when they are not merged, like `git branch -D`. |
-| `--config` | | Path to a `config` file. Defaults to `$HOME/.git-spruce.yaml`. |
-| `--version` | | Print the version and exit. |
-
-git-spruce fetches the configured remote before checking branches, so merge checks see the latest state on the remote. A fetch does not remove remote-tracking `refs`, so a branch deleted upstream still looks alive locally. `--prune` removes those `refs`, the equivalent of `git fetch --prune`. Branches with no remote ref and branches whose remote ref has disappeared are still checked against the merge base.
-
-By default git-spruce deletes only branches it can prove are merged, like `git branch -d`. If the local merge base has not caught up with upstream yet, a branch that is merged upstream can still fail the local merge check; `--force` deletes it anyway, like `git branch -D`.
-
-## Deleting and recovering
-
-Deletion is destructive, so git-spruce prompts to confirm every branch, and prints the tip hash it removed:
+Clone the repo to wherever you want, and build it:
 
 ```shell
+$ git clone https://github.com/bencromwell/git-spruce && cd git-spruce && make build
+```
+
+Add an alias:
+
+```shell
+$ alias 'git-spruce'='/path/to/git-spruce/dist/git-spruce'
+```
+
+It runs contextual to the current working directory and prompts for each branch to potentially remove.
+
+## Options
+
+By default, `git-spruce` fetches the configured origin before checking branches, so it always knows what has happened upstream.
+
+The `-p` prune option goes one step further and runs `git fetch -p`, removing remote-tracking refs for branches that have been deleted upstream.
+
+By default, `git-spruce` runs `git branch -d`, refusing to delete branches that are not merged.
+
+If you've not updated your local merge base yet, you may need the force option to remove branches that are in fact merged upstream.
+
+Branches whose changes were squash-merged look unmerged to git: the branch tip is not an ancestor of the merge base.
+
+The `-s` squash option also detects them, by matching the diff of each branch against the diff of commits on the merge base, the way `git patch-id` does.
+
+The `-y` yes-all option removes every detected branch without prompting.
+
+The `--repo` option points git-spruce at a repository elsewhere. The default is the current working directory.
+
+The `--config` option points at a config file. The default is `$HOME/.git-spruce.yaml`.
+
+## Interactive
+
+The deletion action is destructive, so it's interactive, prompting for confirmation for every deletion. The `-y` yes-all option removes every detected branch without prompting.
+
+## Recovery
+
+```shell
+$ git-spruce
 Branch feature/foo is merged. Remove it? (y/n): y
 Branch deleted: feature/foo (was 19968853d)
 ```
 
-If you change your mind, the tip hash recreates the branch:
+```shell
+$ git reflog | grep 19968853d
+19968853d HEAD@{131}: commit: This is a test commit
+```
 
 ```shell
-git branch feature/foo 19968853d
+$ git checkout 19968853d
+Note: switching to '19968853d'.
 ```
-
-For deletions whose output you no longer have, `git reflog` lists the tips you had checked out, and works the same way.
-
-## Configuration
-
-git-spruce reads `$HOME/.git-spruce.yaml`, and a `.git-spruce.yaml` in the working directory overrides the global file.
-
-```yaml
-merge_base: main
-origin: origin
-ignore_branches: [develop, main, master]
-squash_merged: false
-```
-
-| Key | Meaning |
-| --- | --- |
-| `merge_base` | The branch that merges are checked against. `main` and `master` are treated as synonyms. The default is `main`; in a git-flow workflow this is usually `develop`. |
-| `origin` | The remote to fetch and check against. The default is `origin`. |
-| `ignore_branches` | Branches never removed, whatever their merge status. Defaults to `develop`, `main` and `master`. |
-| `squash_merged` | Also remove branches whose changes landed as a squash merge on the merge base. The default is `false`; `--squash` enables it per run. |
-
-Squash detection compares the diff of each branch against the diff of commits on the merge base, the way `git patch-id` does, so it does not depend on commit messages or ancestry.
-
-## Development
-
-```shell
-make build   # build dist/git-spruce
-make test    # run the tests
-make lint    # golangci-lint
-make bench   # run the benchmarks, e.g. make bench BENCH=SprucePipeline
-```
-
-## Licence
-
-[MIT](LICENSE)
