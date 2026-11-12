@@ -4,6 +4,8 @@ import (
 	"crypto/sha1" //nolint:gosec // patch-id matching mirrors git patch-id; not a security hash
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -45,8 +47,14 @@ func (gs *GitSpruce) Fetch(prune bool) error {
 	})
 }
 
+// defaultSSHKeyFiles are the identity files the ssh client tries when no
+// agent is available, in the same order.
+var defaultSSHKeyFiles = []string{"id_rsa", "id_ecdsa", "id_ed25519", "id_dsa"}
+
 // go-git does not pick up the system SSH agent on its own, so SSH remotes
-// need explicit agent auth or the fetch is rejected as unauthenticated.
+// need explicit auth or the fetch is rejected as unauthenticated. The agent
+// is preferred, but without SSH_AUTH_SOCK (cron, systemd, CI) it cannot be
+// reached, so fall back to the default identity files, as git does.
 func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
 	remote, err := gs.Repo.Remote(gs.Origin)
 	if err != nil {
@@ -58,12 +66,26 @@ func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
 		return nil
 	}
 
-	auth, err := gitssh.NewSSHAgentAuth("git")
+	if auth, err := gitssh.NewSSHAgentAuth("git"); err == nil {
+		return auth
+	}
+
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
 
-	return auth
+	for _, keyFile := range defaultSSHKeyFiles {
+		keyPath := filepath.Join(home, ".ssh", keyFile)
+		if _, statErr := os.Stat(keyPath); statErr != nil {
+			continue
+		}
+		if auth, err := gitssh.NewPublicKeysFromFile("git", keyPath, ""); err == nil {
+			return auth
+		}
+	}
+
+	return nil
 }
 
 func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
