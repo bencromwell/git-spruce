@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"golang.org/x/crypto/ssh"
 )
 
 type GitBranch struct {
@@ -50,7 +52,9 @@ func (gs *GitSpruce) Fetch(prune bool) error {
 // go-git does not pick up the system SSH agent on its own, so SSH remotes
 // need explicit auth or the fetch is rejected as unauthenticated. The agent
 // is preferred, but without SSH_AUTH_SOCK (cron, systemd, CI) it cannot be
-// reached, so fall back to the default identity files, as git does.
+// reached, so fall back to the default identity files, as git does. Every
+// readable key is offered, because the remote may reject the first ones
+// (e.g. an id_rsa that is not registered there).
 func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
 	remote, err := gs.Repo.Remote(gs.Origin)
 	if err != nil {
@@ -74,17 +78,22 @@ func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
 	// the identity files the ssh client tries when no agent is available,
 	// in the same order
 	keyFiles := []string{"id_rsa", "id_ecdsa", "id_ed25519", "id_dsa"}
+	var signers []ssh.Signer
 	for _, keyFile := range keyFiles {
 		keyPath := filepath.Join(home, ".ssh", keyFile)
-		if _, statErr := os.Stat(keyPath); statErr != nil {
-			continue
-		}
 		if auth, keyErr := gitssh.NewPublicKeysFromFile("git", keyPath, ""); keyErr == nil {
-			return auth
+			signers = append(signers, auth.Signer)
 		}
 	}
 
-	return nil
+	if len(signers) == 0 {
+		return nil
+	}
+
+	return &gitssh.PublicKeysCallback{
+		User:     "git",
+		Callback: func() ([]ssh.Signer, error) { return signers, nil },
+	}
 }
 
 func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
@@ -149,13 +158,7 @@ func (gs *GitSpruce) LoadBranches() ([]GitBranch, error) {
 }
 
 func (gs *GitSpruce) isBranchIgnored(branchName string) bool {
-	for _, ignoreBranch := range gs.BranchesToIgnore {
-		if branchName == ignoreBranch {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(gs.BranchesToIgnore, branchName)
 }
 
 // baseCommit resolves and caches the merge base commit.
