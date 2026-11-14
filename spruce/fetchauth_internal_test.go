@@ -100,3 +100,49 @@ func TestFetchAuthNilWithoutAgentOrKeys(t *testing.T) {
 	gs := sshRemoteSpruce(t, "ssh://git@github.com/bencromwell/git-spruce.git")
 	assert.Nil(t, gs.fetchAuth())
 }
+
+func TestFetchAuthUsesScpLikeURLUser(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeDefaultTestKey(t, home)
+
+	// scp-like syntax with a non-git user is still an ssh remote
+	gs := sshRemoteSpruce(t, "deploy@gitlab.example.com:org/repo.git")
+	auth := gs.fetchAuth()
+	require.NotNil(t, auth)
+
+	callback, ok := auth.(*gitssh.PublicKeysCallback)
+	require.True(t, ok, "got %T", auth)
+	assert.Equal(t, "deploy", callback.User)
+}
+
+func TestFetchAuthUsesSSHURLUser(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeDefaultTestKey(t, home)
+
+	gs := sshRemoteSpruce(t, "ssh://deploy@github.com/bencromwell/git-spruce.git")
+	auth := gs.fetchAuth()
+	require.NotNil(t, auth)
+
+	callback, ok := auth.(*gitssh.PublicKeysCallback)
+	require.True(t, ok, "got %T", auth)
+	assert.Equal(t, "deploy", callback.User)
+}
+
+func TestFetchAuthDefaultsToGitUser(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeDefaultTestKey(t, home)
+
+	gs := sshRemoteSpruce(t, "ssh://github.com/bencromwell/git-spruce.git")
+	auth := gs.fetchAuth()
+	require.NotNil(t, auth)
+
+	callback, ok := auth.(*gitssh.PublicKeysCallback)
+	require.True(t, ok, "got %T", auth)
+	assert.Equal(t, "git", callback.User)
+}
