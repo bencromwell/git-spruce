@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -61,12 +60,18 @@ func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
 		return nil
 	}
 
-	url := remote.Config().URLs[0]
-	if !strings.HasPrefix(url, "git@") && !strings.HasPrefix(url, "ssh://") {
+	// go-git's transport treats any scp-like URL as ssh, whatever the user
+	ep, err := transport.NewEndpoint(remote.Config().URLs[0])
+	if err != nil || ep.Protocol != "ssh" {
 		return nil
 	}
 
-	if auth, agentErr := gitssh.NewSSHAgentAuth("git"); agentErr == nil {
+	user := ep.User
+	if user == "" {
+		user = gitssh.DefaultUsername
+	}
+
+	if auth, agentErr := gitssh.NewSSHAgentAuth(user); agentErr == nil {
 		return auth
 	}
 
@@ -81,7 +86,7 @@ func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
 	var signers []ssh.Signer
 	for _, keyFile := range keyFiles {
 		keyPath := filepath.Join(home, ".ssh", keyFile)
-		if auth, keyErr := gitssh.NewPublicKeysFromFile("git", keyPath, ""); keyErr == nil {
+		if auth, keyErr := gitssh.NewPublicKeysFromFile(user, keyPath, ""); keyErr == nil {
 			signers = append(signers, auth.Signer)
 		}
 	}
@@ -91,7 +96,7 @@ func (gs *GitSpruce) fetchAuth() transport.AuthMethod {
 	}
 
 	return &gitssh.PublicKeysCallback{
-		User:     "git",
+		User:     user,
 		Callback: func() ([]ssh.Signer, error) { return signers, nil },
 	}
 }
