@@ -3,6 +3,7 @@ package spruce
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,8 +29,18 @@ func sshRemoteSpruce(t *testing.T, url string) *GitSpruce {
 	return &GitSpruce{Origin: "origin", Repo: repo}
 }
 
+// writeTestKey drops a private key at $HOME/.ssh/<name>.
+func writeTestKey(t *testing.T, home, name, blockType string, der []byte) {
+	t.Helper()
+
+	keyDir := filepath.Join(home, ".ssh")
+	require.NoError(t, os.MkdirAll(keyDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(keyDir, name),
+		pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der}), 0o600))
+}
+
 // writeDefaultTestKey drops a valid ed25519 private key at
-// $HOME/.ssh/id_ed25519, the first file the fallback tries.
+// $HOME/.ssh/id_ed25519.
 func writeDefaultTestKey(t *testing.T, home string) {
 	t.Helper()
 
@@ -38,10 +50,7 @@ func writeDefaultTestKey(t *testing.T, home string) {
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	require.NoError(t, err)
 
-	keyDir := filepath.Join(home, ".ssh")
-	require.NoError(t, os.MkdirAll(keyDir, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(keyDir, "id_ed25519"),
-		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
+	writeTestKey(t, home, "id_ed25519", "PRIVATE KEY", der)
 }
 
 func TestFetchAuthSkipsNonSSHRemote(t *testing.T) {
@@ -59,6 +68,29 @@ func TestFetchAuthFallsBackToDefaultKeyWithoutAgent(t *testing.T) {
 
 	gs := sshRemoteSpruce(t, "git@github.com:bencromwell/git-spruce.git")
 	assert.NotNil(t, gs.fetchAuth())
+}
+
+func TestFetchAuthOffersEveryDefaultKeyWithoutAgent(t *testing.T) {
+	// the first key file (id_rsa) may parse yet be rejected by the remote,
+	// so the fallback must offer every readable key, not stop at the first
+	t.Setenv("SSH_AUTH_SOCK", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeDefaultTestKey(t, home)
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	writeTestKey(t, home, "id_rsa", "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey))
+
+	gs := sshRemoteSpruce(t, "git@github.com:bencromwell/git-spruce.git")
+	auth := gs.fetchAuth()
+	require.NotNil(t, auth)
+
+	callback, ok := auth.(*gitssh.PublicKeysCallback)
+	require.True(t, ok, "fallback should offer all keys via a callback, got %T", auth)
+	signers, err := callback.Callback()
+	require.NoError(t, err)
+	assert.Len(t, signers, 2)
 }
 
 func TestFetchAuthNilWithoutAgentOrKeys(t *testing.T) {
